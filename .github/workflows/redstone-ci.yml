@@ -35,7 +35,11 @@ jobs:
       - run: pnpm db:generate
         env:
           DATABASE_URL: postgres://rakazo:rakazo@127.0.0.1:5433/rakazo
+      # Check Expo packages against the installed SDK, not the newest patches Expo has
+      # published since: this fork takes those with upstream syncs.
       - run: pnpm check
+        env:
+          EXPO_OFFLINE: "1"
 
   unit:
     name: Unit tests (${{ matrix.shard }}/3)
