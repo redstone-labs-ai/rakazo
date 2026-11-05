@@ -1,12 +1,12 @@
 # Chat apps
 
-Message your bots from Slack, Telegram, WhatsApp, iMessage or SMS, and add them to group chats
-there.
+Message your bots from Slack, Microsoft Teams, Telegram, WhatsApp, iMessage or SMS, and add them
+to group chats there.
 
 > [!NOTE]
 > **Settings → Messaging** appears only when your server has at least one chat app set up. Which
-> apps you see depends on the server: Slack, Telegram, WhatsApp, iMessage and SMS, and Feishu (Lark)
-> are supported. On a self-hosted server the operator configures them; see
+> apps you see depends on the server: Slack, Microsoft Teams, Telegram, WhatsApp, iMessage and SMS,
+> and Feishu (Lark) are supported. On a self-hosted server the operator configures them; see
 > [Self-hosting](./self-host.md).
 
 ## Link a bot to a chat app
@@ -50,6 +50,12 @@ member's own bot. Members who have not linked Telegram only trigger a one-time i
 group. Turn privacy mode off so the bot hears the whole group: in BotFather run `/setprivacy` and
 choose **Disable**, or make the bot a group admin. With privacy mode on it only sees messages that
 mention it. Telegram broadcast channels are not group chats; posts there never reach your bot.
+
+Microsoft Teams group chats and channels link the same way. Install the bot's Teams app in a chat
+or team and send it a message there. Unless your server's Teams app is set up to read every message,
+the bot only sees messages that @mention it. In a channel, every thread belongs to one conversation
+and the bot's replies start a new post in the channel. Files people share in group chats and channels
+don't reach the bot; files in a direct chat with it do.
 
 Slack rooms added through a workspace are team conversations, the only ones with per-room
 settings. Open a conversation's **Settings** to decide how the bot behaves there:
