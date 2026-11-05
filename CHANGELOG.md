@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Bots can be messaged from Microsoft Teams, in a direct chat or added to group chats and channels, which link personally as on Telegram. Self-hosters set `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD` and `TEAMS_APP_TENANT_ID` for a single-tenant Azure Bot, and messages from other organizations are refused ([chat apps](docs/messaging-apps.md)).
+
 ## [0.8.0] - 2026-11-04
 
 ### Added
