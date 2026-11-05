@@ -28,6 +28,7 @@ Upstream ships several releases a week. Every line we change in an upstream file
 | `fix/group-approval-reply` | not opened yet | A group run resumed by an approval card still posts its reply to the group; an edited instruction change stays out. Fork #3. |
 | `feat/group-runs-read-only` | not opened yet | `RAKAZO_GROUP_RUNS_READ_ONLY=true` refuses connector writes in group chat runs instead of asking the owner, audited as `group_read_only`. Built-in tools are unchanged. Fork #5. |
 | `feat/default-user-presets` | not opened yet | `RAKAZO_DEFAULT_TIMEZONE`, `_LOCALE`, `_BOT_INSTRUCTIONS` and `_ROUTINES` give new accounts a starting setup: first bot instructions and paused routines. Bad values are logged and ignored. Fork #6. |
+| `feat/marketplace-hidden-plugins` | not opened yet | `RAKAZO_HIDDEN_MARKETPLACE_PLUGINS` leaves plugin sources out of the marketplace and refuses their preview and install; installed ones stay. Used to hide Cursor's Microsoft plugins, which cannot sign in here, in favor of Managebot's own Outlook, Teams and SharePoint connectors. Fork #8. |
 | `ci/expo-check-offline` | Redstone only | `redstone-ci.yml` passes `EXPO_OFFLINE` so the mobile check uses the installed Expo SDK. Fork #4. |
 
 ## Sync upstream
