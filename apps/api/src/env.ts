@@ -68,6 +68,8 @@ export interface AppEnv {
   /** Opt-in Pi JSONL session recording under DATA_DIR/pi-sessions. Default off. */
   piSessionRecording: boolean;
   ticketBoardEnabled: boolean;
+  /** RAKAZO_GROUP_RUNS_READ_ONLY=true limits group chat runs to reading connected apps. */
+  groupRunsReadOnly: boolean;
   /** The timezone, language, first-bot instructions and routines new accounts start with. */
   newUserDefaults: NewUserDefaults;
   /** USER_DEVICES_ENABLED=false stops users connecting their own computers. Default on. */
@@ -262,6 +264,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     dataDir: source.DATA_DIR ?? "./data",
     piSessionRecording: source.PI_SESSION_RECORDING === "true",
     ticketBoardEnabled: source.TICKET_BOARD_ENABLED === "true",
+    groupRunsReadOnly: source.RAKAZO_GROUP_RUNS_READ_ONLY === "true",
     newUserDefaults: newUserDefaultsFromEnv(source),
     userDevicesEnabled: source.USER_DEVICES_ENABLED !== "false",
     navLinks: parseNavLinks(source.RAKAZO_NAV_LINKS),

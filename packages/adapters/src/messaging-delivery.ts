@@ -229,10 +229,15 @@ async function mirrorChannelRun(
   });
   // Ask answers are entered privately in the app. Check the same snapshot as
   // the replies so a resumed run cannot publish an answer-influenced response.
+  // An approval card's answer is only allow or deny, so its run still replies
+  // to the group; an instruction change can carry edited text and stays out.
   if (
     replies.some((message) =>
       (message.blocks as MessageBlock[]).some(
-        (block) => block.kind === "ask" && block.status === "answered",
+        (block) =>
+          block.kind === "ask" &&
+          block.status === "answered" &&
+          !(block.approvalEffectId && !block.instructionUpdate),
       ),
     )
   )
