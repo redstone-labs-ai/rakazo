@@ -57,6 +57,11 @@ the bot only sees messages that @mention it. In a channel, every thread belongs 
 and the bot's replies start a new post in the channel. Files people share in group chats and channels
 don't reach the bot; files in a direct chat with it do.
 
+When someone in a group asks the bot to change something in one of your connected apps, you approve
+it in the app first. A server can instead keep group chats read-only with
+`RAKAZO_GROUP_RUNS_READ_ONLY=true`: the bot only reads connected apps there and asks people to
+make changes from a direct chat.
+
 Slack rooms added through a workspace are team conversations, the only ones with per-room
 settings. Open a conversation's **Settings** to decide how the bot behaves there:
 

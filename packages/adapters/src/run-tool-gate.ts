@@ -277,6 +277,25 @@ export async function gateToolCall(
       approvalToolNames.some((toolName) =>
         connectorToolRequiresApproval(toolName, declaredReadOnlyFor(toolName)),
       ));
+  // With group runs read-only, a connector call there runs only when it is declared read-only or
+  // named like a read; anything else is refused instead of asking the owner.
+  if (
+    groupChatChange &&
+    deps.groupRunsReadOnly &&
+    (unidentifiedAction ||
+      !approvalToolNames.every(
+        (toolName) =>
+          declaredReadOnlyFor(toolName) === true ||
+          !connectorToolRequiresApproval(toolName, declaredReadOnlyFor(toolName)),
+      ))
+  ) {
+    await auditToolCall(ctx, name, "denied", { reason: "group_read_only" });
+    return {
+      result: {
+        error: `${name} can change data, and in group chats this bot can only read. Don't retry or try it another way; tell them to ask in a direct chat with the bot.`,
+      },
+    };
+  }
   const requiresMandatoryApproval =
     groupChatChange ||
     paying ||

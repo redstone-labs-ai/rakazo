@@ -11,8 +11,8 @@ import type { ActionApprovalRule } from "@rakazo/core";
 import { inboundRoutineBlock } from "@rakazo/core";
 import { approvalEffectKey, toolEffectIdempotencyKey } from "@rakazo/core/node/approval-effect-key";
 import type { PrismaClient } from "@rakazo/db";
-import { createPendingSteeringRun, sendUserMessage } from "@rakazo/db";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPendingSteeringRun, installAuditEventStore, sendUserMessage } from "@rakazo/db";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DENIED_ACTION_ERROR, isApprovalPausedResult } from "./approval-effect.js";
 import { MAX_SHARED_MEMORY_CHARS } from "./builtin-tools.js";
 import type * as ComputerLifecycleModule from "./computer-lifecycle.js";
@@ -97,6 +97,7 @@ function fixture({
   parallelCalls = false,
   sourceRole,
   groupChat = false,
+  groupRunsReadOnly = false,
   existingSharedMemory,
   advanceRevisionAfterRead = false,
   fleetManagement = false,
@@ -129,6 +130,8 @@ function fixture({
   sourceRole?: string;
   /** A message someone wrote in a linked group chat starts the run. */
   groupChat?: boolean;
+  /** The deployment keeps group chat runs read-only. */
+  groupRunsReadOnly?: boolean;
   builtin?: boolean;
   disabledBuiltinTools?: string[];
   existingSharedMemory?: string;
@@ -638,6 +641,7 @@ function fixture({
     shutdownSignal,
     web,
     userDevices,
+    groupRunsReadOnly,
   } as unknown as Parameters<typeof createRunExecutor>[0]);
   return {
     prisma: transactionalPrisma,
@@ -1110,6 +1114,95 @@ describe("connector read-only metadata and approval enforcement", () => {
       await f.run();
       expect(f.execute).toHaveBeenCalledOnce();
       expect(f.pauseRunForInput).not.toHaveBeenCalled();
+    });
+
+    describe("with group runs read-only", () => {
+      const audits: Array<Record<string, unknown>> = [];
+      beforeEach(() => {
+        audits.length = 0;
+        installAuditEventStore({
+          auditEvent: {
+            createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
+              audits.push(...data);
+              return { count: data.length };
+            },
+          },
+          space: { findUnique: async () => ({ organizationId: "org-1", name: "Space" }) },
+          user: { findUnique: async () => null },
+          member: { findMany: async () => [] },
+        } as unknown as Parameters<typeof installAuditEventStore>[0]);
+      });
+      afterEach(() => installAuditEventStore(undefined));
+
+      it("runs a group chat's read", async () => {
+        const f = fixture({ catalog, groupChat: true, groupRunsReadOnly: true });
+        await f.run();
+        expect(f.execute).toHaveBeenCalledOnce();
+        expect(f.pauseRunForInput).not.toHaveBeenCalled();
+        expect(audits).not.toContainEqual(expect.objectContaining({ outcome: "denied" }));
+      });
+
+      it("refuses a group chat's write without asking the owner, and audits it", async () => {
+        const f = fixture({
+          catalog,
+          name: "demo_send_message",
+          readOnly: false,
+          groupChat: true,
+          groupRunsReadOnly: true,
+          rules: [{ effect: "always_allow", matchKind: "tool", matchValue: "demo_send_message" }],
+        });
+        await f.run();
+        expect(f.execute).not.toHaveBeenCalled();
+        expect(f.pauseRunForInput).not.toHaveBeenCalled();
+        expect(f.results.at(-1)).toEqual({
+          error: expect.stringContaining("in group chats this bot can only read"),
+        });
+        expect(audits).toEqual([
+          expect.objectContaining({
+            action: "tool.call",
+            outcome: "denied",
+            metadata: expect.objectContaining({ reason: "group_read_only" }),
+          }),
+        ]);
+      });
+
+      it("lets a declared read-only tool through to the owner's approval", async () => {
+        const f = fixture({
+          catalog,
+          name: "demo_query",
+          readOnly: true,
+          groupChat: true,
+          groupRunsReadOnly: true,
+        });
+        await f.run();
+        expect(f.pauseRunForInput).toHaveBeenCalledOnce();
+        expect(audits).not.toContainEqual(expect.objectContaining({ outcome: "denied" }));
+      });
+
+      it("leaves direct chats to the approval rules", async () => {
+        const skipped = fixture({
+          catalog,
+          name: "demo_send_message",
+          readOnly: false,
+          trigger: "messaging",
+          skipApprovals: true,
+          groupRunsReadOnly: true,
+        });
+        await skipped.run();
+        expect(skipped.execute).toHaveBeenCalledOnce();
+
+        const asked = fixture({
+          catalog,
+          name: "demo_send_message",
+          readOnly: false,
+          trigger: "messaging",
+          groupRunsReadOnly: true,
+        });
+        await asked.run();
+        expect(asked.execute).not.toHaveBeenCalled();
+        expect(asked.pauseRunForInput).toHaveBeenCalledOnce();
+        expect(audits).not.toContainEqual(expect.objectContaining({ outcome: "denied" }));
+      });
     });
 
     it("runs a webhook-triggered write in Never ask", async () => {

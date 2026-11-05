@@ -54,6 +54,8 @@ export interface ExecutorDeps {
   /** Publishes board-change signals and wakes ticket owners; absent disables both. */
   onTicketChange?: TicketChangeNotifier;
   ticketBoardEnabled?: boolean;
+  /** Group chat runs may only read connected apps; their other connector calls are refused. */
+  groupRunsReadOnly?: boolean;
   phoneCallsEnabled?: boolean;
   phoneCallCooldownMinutes?: number;
   phoneCallRingSeconds?: number;
