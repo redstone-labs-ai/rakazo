@@ -24,6 +24,7 @@ import { boundInboundMarkdown } from "./chat-sdk-surface.js";
 import { LazyLarkAdapter } from "./lark/lazy-adapter.js";
 import { Domain } from "./lark/thread-id.js";
 import { LazyPhotonAdapter } from "./photon/lazy-adapter.js";
+import { teamsPlatform } from "./teams-messaging.js";
 import { isVitestRuntime } from "./test-runtime.js";
 
 /**
@@ -57,6 +58,9 @@ export interface MessagingEnvironmentValues {
   photonWebhookSecret?: string | undefined;
   /** Extra named Photon projects (PHOTON_PROJECT_ID_<NAME>), each with its own number. */
   photonProjects?: PhotonProjectCredentials[] | undefined;
+  teamsAppId?: string | undefined;
+  teamsAppPassword?: string | undefined;
+  teamsAppTenantId?: string | undefined;
 }
 
 export function messagingEnvFromProcess(
@@ -89,6 +93,9 @@ export function messagingEnvFromProcess(
     photonProjectSecret: clean(env.PHOTON_PROJECT_SECRET),
     photonWebhookSecret: clean(env.PHOTON_WEBHOOK_SECRET),
     photonProjects: photonProjectsFromEnv(env),
+    teamsAppId: clean(env.TEAMS_APP_ID),
+    teamsAppPassword: clean(env.TEAMS_APP_PASSWORD),
+    teamsAppTenantId: clean(env.TEAMS_APP_TENANT_ID),
   };
 }
 
@@ -377,6 +384,9 @@ export function messagingPlatformsFromEnv(
       }),
     });
   }
+
+  const teams = teamsPlatform(env);
+  if (teams) platforms.push(teams);
 
   return platforms;
 }

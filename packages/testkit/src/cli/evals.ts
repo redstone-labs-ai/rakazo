@@ -546,6 +546,7 @@ async function main() {
       TELEGRAM_BOT_TOKEN: "",
       WHATSAPP_ACCESS_TOKEN: "",
       LARK_APP_ID: "",
+      TEAMS_APP_ID: "",
       SENDBLUE_API_KEY_ID: "",
       CURSOR_API_KEY: "",
       CLOUD_AGENT_PROVIDER: "",

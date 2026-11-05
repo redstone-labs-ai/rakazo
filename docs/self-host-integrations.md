@@ -126,7 +126,7 @@ base URL; Rakazo appends `api/search`.
 
 ## Messaging apps
 
-Optional messaging platforms (iMessage through Sendblue or Photon, Slack, WhatsApp, Telegram, Feishu/Lark) mount when their env credentials are set — see `.env.example`. The Lark adapter and official SDK load only when configured. Point a Feishu/Lark bot event subscription at `/api/v1/messaging/webhook/lark` (webhook/HTTP inbound only; do not enable long connection). Personal group linking works on iMessage and Telegram (see the Telegram privacy note below); WhatsApp and Feishu/Lark are direct-only, and Slack channels use workspace installations below. Telegram can run several bots side by side (`TELEGRAM_BOT_TOKEN_<NAME>` plus `TELEGRAM_WEBHOOK_SECRET_TOKEN_<NAME>`), for example one per space, so the same person can chat with a different Rakazo bot through each. Photon works the same way: each extra project (`PHOTON_PROJECT_ID_<NAME>` plus `PHOTON_PROJECT_SECRET_<NAME>`, and `PHOTON_WEBHOOK_SECRET_<NAME>` for webhooks) gives the person a different number, mounted as provider `photon-<name>`. Photon receives iMessage over an outbound stream from the API, so it works on a server with no public URL; on Photon's shared lines the person texts first, and group chats are not available.
+Optional messaging platforms (iMessage through Sendblue or Photon, Slack, Microsoft Teams, WhatsApp, Telegram, Feishu/Lark) mount when their env credentials are set — see `.env.example`. The Lark adapter and official SDK load only when configured. Point a Feishu/Lark bot event subscription at `/api/v1/messaging/webhook/lark` (webhook/HTTP inbound only; do not enable long connection). Personal group linking works on iMessage, Telegram and Microsoft Teams (see the notes below); WhatsApp and Feishu/Lark are direct-only, and Slack channels use workspace installations below. Telegram can run several bots side by side (`TELEGRAM_BOT_TOKEN_<NAME>` plus `TELEGRAM_WEBHOOK_SECRET_TOKEN_<NAME>`), for example one per space, so the same person can chat with a different Rakazo bot through each. Photon works the same way: each extra project (`PHOTON_PROJECT_ID_<NAME>` plus `PHOTON_PROJECT_SECRET_<NAME>`, and `PHOTON_WEBHOOK_SECRET_<NAME>` for webhooks) gives the person a different number, mounted as provider `photon-<name>`. Photon receives iMessage over an outbound stream from the API, so it works on a server with no public URL; on Photon's shared lines the person texts first, and group chats are not available.
 
 Each platform turns on when its full set of credentials is present on the API and worker.
 Webhooks arrive at `/api/v1/messaging/webhook/<provider>`.
@@ -138,6 +138,7 @@ Webhooks arrive at `/api/v1/messaging/webhook/<provider>`.
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
 | iMessage (Photon) | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET`; `PHOTON_WEBHOOK_SECRET` to receive by webhook instead of the stream; more projects as `PHOTON_PROJECT_ID_<NAME>` plus `PHOTON_PROJECT_SECRET_<NAME>` |
 | Feishu/Lark | `LARK_APP_ID`, `LARK_APP_SECRET`, `LARK_VERIFICATION_TOKEN`; `LARK_ENCRYPT_KEY` when event encryption is on; `LARK_DOMAIN` (`feishu`, the default, or `lark`) |
+| Microsoft Teams | `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID` |
 | Slack | See below |
 
 Telegram is webhook-only: Telegram sends the secret in `X-Telegram-Bot-Api-Secret-Token`, and the
@@ -149,6 +150,18 @@ bot, and the per-room listening settings belong to Slack team conversations only
 run `/setprivacy` on the bot and choose **Disable** (or make it a group admin), or the bot only
 receives group messages that mention it. Broadcast channel posts never start runs. For Lark,
 create a custom app with the Bot capability and subscribe it to `im.message.receive_v1`.
+
+For Microsoft Teams, register a single-tenant Azure Bot with a client secret (`TEAMS_APP_ID` is
+its Microsoft App ID, `TEAMS_APP_PASSWORD` the secret, `TEAMS_APP_TENANT_ID` its Microsoft Entra
+tenant), enable its Microsoft Teams channel, and set its messaging endpoint to
+`https://app.example.com/api/v1/messaging/webhook/teams` using your public API origin. Rakazo
+refuses activities from any other tenant. The Teams adapter and SDK load only when configured.
+Publish a Teams app manifest for the bot with the `personal`, `groupChat` and `team` scopes and
+`supportsFiles` so people can send it files in a direct chat. Without the `ChatMessage.Read.Chat`
+and `ChannelMessage.Read.Group` resource-specific permissions in the manifest, the bot only
+receives group chat and channel messages that @mention it. Teams uses personal group linking, like
+Telegram; a channel's threads share one conversation and replies post to the channel. Teams does
+not hand bots the files shared in group chats or channels.
 
 People link a chat app to their account from **Messaging** settings. `MESSAGING_OPEN_SIGNUP=true`
 instead gives unknown senders their own chat-only accounts, whose runs use the deployment model.
