@@ -968,6 +968,61 @@ describe("deliverMessagingOutbound channel runs", () => {
     expect(deps.sendUserMessage).not.toHaveBeenCalled();
   });
 
+  it("posts the group reply of a run resumed by an approval answer", async () => {
+    const deps = createChannelDeps({
+      messages: [
+        {
+          id: "ask-1",
+          blocks: [
+            {
+              kind: "ask",
+              text: "Create the work order?",
+              approvalEffectId: "effect-1",
+              status: "answered",
+              answer: "allow",
+            },
+          ],
+        },
+        { id: "reply-1", blocks: [{ kind: "text", text: "Work order created" }] },
+      ],
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+    expect(deps.sendToThread).toHaveBeenCalledTimes(1);
+    expect(deps.sendToThread).toHaveBeenCalledWith(
+      { threadId: "sendblue:grp-1", body: "Alice's agent: Work order created" },
+      context,
+    );
+  });
+
+  it("keeps a run resumed by an edited instruction change out of the group", async () => {
+    const deps = createChannelDeps({
+      messages: [
+        {
+          id: "ask-1",
+          blocks: [
+            {
+              kind: "ask",
+              text: "Update instructions?",
+              approvalEffectId: "effect-1",
+              instructionUpdate: {
+                botId: "bot-1",
+                before: "Old",
+                after: "Private edit",
+                reason: "Asked",
+              },
+              status: "answered",
+              answer: "allow",
+            },
+          ],
+        },
+        { id: "reply-1", blocks: [{ kind: "text", text: "Updated to: Private edit" }] },
+      ],
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+    expect(deps.rows).toEqual([]);
+    expect(deps.sendToThread).not.toHaveBeenCalled();
+  });
+
   it("can still publish a group reply alongside an unanswered ask", async () => {
     const deps = createChannelDeps({
       messages: [
