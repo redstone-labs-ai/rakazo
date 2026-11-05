@@ -66,6 +66,13 @@ describe("loadEnv", () => {
       loadEnv({ ...base, RAKAZO_NAV_LINKS: '[{"id":"x","label":"X","path":"/api/me"}]' }),
     ).toThrow("RAKAZO_NAV_LINKS");
   });
+  it("loads hidden marketplace plugins", () => {
+    expect(loadEnv(base).hiddenMarketplacePlugins).toEqual([]);
+    expect(
+      loadEnv({ ...base, RAKAZO_HIDDEN_MARKETPLACE_PLUGINS: "acme/plugins#mail" })
+        .hiddenMarketplacePlugins,
+    ).toEqual(["https://github.com/acme/plugins#mail"]);
+  });
   it("keeps Crisp chat off unless a valid website ID is set", () => {
     expect(loadEnv(base).crispWebsiteId).toBeNull();
     expect(

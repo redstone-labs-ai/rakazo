@@ -31,6 +31,7 @@ import {
 } from "@rakazo/core";
 import type { NewUserDefaults } from "@rakazo/db";
 import { monitoringPseudonymSecret } from "@rakazo/logging";
+import { hiddenPluginsFromEnv } from "./hidden-plugins.js";
 import { newUserDefaultsFromEnv } from "./new-user-defaults.js";
 
 export { resolveCloudAgentProvider, resolveSandboxProvider } from "@rakazo/adapters";
@@ -76,6 +77,9 @@ export interface AppEnv {
   userDevicesEnabled: boolean;
   /** Operator menu links that frame a same-origin page (RAKAZO_NAV_LINKS). */
   navLinks?: NavLink[];
+  /** Plugin sources the marketplace leaves out and refuses to install
+   * (RAKAZO_HIDDEN_MARKETPLACE_PLUGINS). */
+  hiddenMarketplacePlugins?: string[];
   /** Verified accounts that review plugin submissions, add stdio MCP servers, and grant access
    * (RAKAZO_ADMIN_EMAILS), lowercased. */
   adminEmails: string[];
@@ -268,6 +272,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     newUserDefaults: newUserDefaultsFromEnv(source),
     userDevicesEnabled: source.USER_DEVICES_ENABLED !== "false",
     navLinks: parseNavLinks(source.RAKAZO_NAV_LINKS),
+    hiddenMarketplacePlugins: hiddenPluginsFromEnv(source.RAKAZO_HIDDEN_MARKETPLACE_PLUGINS),
     adminEmails: list(source.RAKAZO_ADMIN_EMAILS).map((email) => email.toLowerCase()),
     ...phoneCallSettings(source),
     maxUploadSizeBytes: uploadSizeFromEnv(source),
