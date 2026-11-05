@@ -1,0 +1,55 @@
+name: redstone-sync
+
+# Mirrors upstream main and opens a merge PR into redstone for each new upstream release.
+# The logic is scripts/redstone-sync.sh so a person can run the same thing locally.
+# GITHUB_TOKEN cannot push commits that change .github/workflows, and upstream often does,
+# so this needs REDSTONE_SYNC_TOKEN: a token with contents, pull requests and workflows
+# write on this repository only. Without it the run only reports.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Upstream tag or branch to merge (default latest release)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redstone-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require the sync token
+        id: token
+        env:
+          TOKEN: ${{ secrets.REDSTONE_SYNC_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "REDSTONE_SYNC_TOKEN is not set. Run scripts/redstone-sync.sh locally instead." >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        if: steps.token.outputs.ok == 'true'
+        with:
+          ref: redstone
+          fetch-depth: 0
+          token: ${{ secrets.REDSTONE_SYNC_TOKEN }}
+      - name: Sync
+        if: steps.token.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REDSTONE_SYNC_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF: ${{ inputs.ref }}
+        run: |
+          git config user.name "redstone-sync"
+          git config user.email "redstone-sync@users.noreply.github.com"
+          bash scripts/redstone-sync.sh "${REF:-}"

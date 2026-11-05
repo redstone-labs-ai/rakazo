@@ -1,0 +1,27 @@
+name: redstone-image
+
+# Builds the app, updater and computer images from redstone with upstream's own pipeline.
+# Images land at ghcr.io/redstone-labs-ai/rakazo/<name>:sha-<commit>. Deploys pin digests.
+on:
+  push:
+    branches: [redstone]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redstone-image
+  cancel-in-progress: false
+
+jobs:
+  images:
+    uses: ./.github/workflows/publish-server-image.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
