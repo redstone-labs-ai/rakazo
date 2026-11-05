@@ -10,7 +10,7 @@ import {
   MIN_PASSWORD_LENGTH,
   signupPolicyFromEnv,
 } from "@rakazo/core";
-import type { PrismaClient, SecurityEventType } from "@rakazo/db";
+import type { NewUserDefaults, PrismaClient, SecurityEventType } from "@rakazo/db";
 import { bootstrapUserSpace, personalOrganizationIds, recordSecurityEvent } from "@rakazo/db";
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { betterAuth } from "better-auth";
@@ -76,6 +76,8 @@ export interface AuthEnv {
   signupAllowlist: string | undefined;
   /** Admits a new account only while there is none, for a deployment that serves one person. */
   singleAccount?: boolean;
+  /** The timezone and language a new account starts with. */
+  newUserDefaults?: Pick<NewUserDefaults, "timezone" | "locale">;
   extraOrigins?: string[];
   /** SHA-256 signing certificate fingerprints of Android apps allowed to use this server's passkeys. */
   androidAppCertFingerprints?: string[];
@@ -200,7 +202,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('rakazo:single-account'))`;
       if (await hasAdmittedAccount(tx, userId)) return false;
       // Committed before the lock is released, so the next signup sees it.
-      await bootstrapUserSpace(prisma, { id: userId }, env);
+      await bootstrapUserSpace(prisma, { id: userId }, env, env.newUserDefaults);
       return true;
     });
   // SSO-only deployments keep every email credential closed, codes included.
@@ -634,7 +636,8 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
                   message: "Registration is closed",
                 });
               }
-              if (!env.singleAccount) await bootstrapUserSpace(prisma, user, env);
+              if (!env.singleAccount)
+                await bootstrapUserSpace(prisma, user, env, env.newUserDefaults);
               else if (!(await admitSoleAccount(user.id)))
                 throw new APIError("FORBIDDEN", {
                   code: "REGISTRATION_CLOSED",

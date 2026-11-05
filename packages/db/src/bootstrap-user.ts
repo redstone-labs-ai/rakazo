@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { signupPolicyFromEnv } from "@rakazo/core";
 import type { PrismaClient } from "./client.js";
+import type { NewUserDefaults } from "./new-user-defaults.js";
 
 export interface SignupPolicyEnv {
   signupsEnabled: string | undefined;
@@ -107,6 +108,7 @@ export async function bootstrapUserSpace(
   prisma: PrismaClient,
   user: { id: string },
   env: SignupPolicyEnv,
+  defaults: Pick<NewUserDefaults, "timezone" | "locale"> = {},
 ): Promise<{ spaceId: string }> {
   // Concurrent bootstraps for the same user (e.g. overlapping first phone inbounds) share the slug.
   const spaceId = await createOrganizationWithDefaultSpace(prisma, {
@@ -127,5 +129,18 @@ export async function bootstrapUserSpace(
     },
     update: {},
   });
+  // Conditional, so a timezone or language the user already chose is kept.
+  if (defaults.timezone) {
+    await prisma.user.updateMany({
+      where: { id: user.id, timezone: null },
+      data: { timezone: defaults.timezone },
+    });
+  }
+  if (defaults.locale) {
+    await prisma.user.updateMany({
+      where: { id: user.id, locale: null },
+      data: { locale: defaults.locale },
+    });
+  }
   return { spaceId };
 }

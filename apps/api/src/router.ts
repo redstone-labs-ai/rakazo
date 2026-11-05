@@ -32,7 +32,7 @@ import type {
 } from "@rakazo/adapters";
 import type { Auth } from "@rakazo/auth";
 import type { NavLink } from "@rakazo/contracts";
-import type { BoardEvents, PrismaClient, ThreadEvents } from "@rakazo/db";
+import type { BoardEvents, NewUserDefaults, PrismaClient, ThreadEvents } from "@rakazo/db";
 import type { BillingService } from "./billing.js";
 import { accountRoutes } from "./routes/account.js";
 import { availabilityRoutes } from "./routes/availability.js";
@@ -143,6 +143,8 @@ export interface RouterDeps {
     desktopHostChoiceEnabled?: boolean;
     mcpStdioEnabled?: boolean;
     mcpStdioAllowedCommands?: string[];
+    /** What a new account's first bot starts with. */
+    newUserDefaults?: NewUserDefaults;
   };
 }
 
