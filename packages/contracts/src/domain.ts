@@ -101,6 +101,9 @@ export const InstructionVersionSchema = z.object({
   createdAt: z.string(),
 });
 
+/** The spawn key of the first bot onboarding creates for a new account. */
+export const FIRST_BOT_SPAWN_KEY = "onboarding:first";
+
 export const BotSchema = z.object({
   id: Id,
   spaceId: Id,

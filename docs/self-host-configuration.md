@@ -86,6 +86,23 @@ ceiling because Node's HTTP client stops waiting at that point on its own.
 | `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
 | `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |
 
+## New account defaults
+
+These give each new account a starting setup. Set them on the API. Each one only fills what is
+still empty, so anything a person has already chosen stays, and they can change all of it later.
+A value that does not parse is logged and ignored.
+
+| Variable | Effect |
+| --- | --- |
+| `RAKAZO_DEFAULT_TIMEZONE` | IANA timezone, such as `America/New_York`, for a new account. The web app then keeps it instead of adopting the browser's timezone. |
+| `RAKAZO_DEFAULT_LOCALE` | App language code, such as `es` or `pt-BR`, for a new account. |
+| `RAKAZO_DEFAULT_BOT_INSTRUCTIONS` | Instructions for the first bot: the one onboarding creates, or the one a chat app creates for someone who messages it first. |
+| `RAKAZO_DEFAULT_ROUTINES` | Routines added to that first bot, paused until the person turns them on. A JSON array of `{"name", "prompt", "crons", "timezone"}`; `timezone` is optional and falls back to `RAKAZO_DEFAULT_TIMEZONE`, then UTC. |
+
+```sh
+RAKAZO_DEFAULT_ROUTINES='[{"name":"Morning brief","prompt":"Summarize my day.","crons":["0 8 * * 1-5"]}]'
+```
+
 ## Database roles
 
 Rakazo uses two Postgres logins:

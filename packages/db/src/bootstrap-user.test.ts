@@ -26,6 +26,11 @@ function makePrisma(settings: { id: string; ownerUserId: string | null } | null)
     },
     memoryDocument: { findFirst: vi.fn(async () => null), create: create() },
     notificationPreference: { create: create() },
+    user: {
+      updateMany: vi.fn(async (_input: { where: Record<string, unknown>; data: unknown }) => ({
+        count: 1,
+      })),
+    },
   };
   return prisma;
 }
@@ -110,6 +115,22 @@ describe("bootstrapUserSpace", () => {
     const prefData = prisma.notificationPreference.create.mock.calls[0]![0].data;
     expect(prefData.spaceId).toBe(spaceId);
     expect(prefData.userId).toBe("user-1");
+  });
+
+  it("fills a default timezone and language only where the account has none", async () => {
+    const prisma = makePrisma({ id: "default", ownerUserId: null });
+    await bootstrapUserSpace(prisma as unknown as PrismaClient, { id: "user-1" }, env, {
+      timezone: "America/Denver",
+      locale: "es",
+    });
+    expect(prisma.user.updateMany.mock.calls.map(([input]) => input)).toEqual([
+      { where: { id: "user-1", timezone: null }, data: { timezone: "America/Denver" } },
+      { where: { id: "user-1", locale: null }, data: { locale: "es" } },
+    ]);
+
+    const untouched = makePrisma({ id: "default", ownerUserId: null });
+    await bootstrapUserSpace(untouched as unknown as PrismaClient, { id: "user-1" }, env);
+    expect(untouched.user.updateMany).not.toHaveBeenCalled();
   });
 });
 

@@ -4,6 +4,8 @@ import type { SignupPolicyEnv } from "./bootstrap-user.js";
 import { bootstrapUserSpace } from "./bootstrap-user.js";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./client.js";
+import type { NewUserDefaults } from "./new-user-defaults.js";
+import { firstBotWithDefaults } from "./new-user-defaults.js";
 import { createRepos } from "./repos.js";
 
 export interface MessagingIdentityRequest {
@@ -51,6 +53,7 @@ export async function provisionMessagingIdentity(
   prisma: PrismaClient,
   request: MessagingIdentityRequest,
   env: SignupPolicyEnv,
+  defaults: NewUserDefaults = {},
 ): Promise<ProvisionedMessagingIdentity> {
   const { provider, address } = request;
   if (!ADDRESS_PATTERN.test(address)) {
@@ -96,7 +99,8 @@ export async function provisionMessagingIdentity(
     where: { userId: user.id, space: { deletingAt: null } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
-  const spaceId = membership?.spaceId ?? (await bootstrapUserSpace(prisma, user, env)).spaceId;
+  const spaceId =
+    membership?.spaceId ?? (await bootstrapUserSpace(prisma, user, env, defaults)).spaceId;
 
   // A previous attempt may have died between createBot and the identity row;
   // messaging users only ever get bots here, so an existing bot is theirs.
@@ -108,22 +112,23 @@ export async function provisionMessagingIdentity(
   )?.id;
   if (!botId) {
     const repos = createRepos(prisma);
+    const actor = { userId: user.id, spaceId, email: user.email, isDeploymentOwner: false };
     const bot = await repos.createBot(
-      {
-        userId: user.id,
-        spaceId,
-        email: user.email,
-        isDeploymentOwner: false,
-      },
-      {
-        name: "Assistant",
-        description: `Personal agent for ${address} (${provider}), auto-created on first message.`,
-        instructions:
-          "You are the owner's personal agent. The owner reaches you over chat; " +
-          "keep replies concise and conversational. Your first reply doubles as onboarding: " +
-          "briefly introduce yourself and what you can help with.",
-        notifyOnFinish: true,
-      },
+      actor,
+      firstBotWithDefaults(
+        actor,
+        {
+          name: "Assistant",
+          description: `Personal agent for ${address} (${provider}), auto-created on first message.`,
+          instructions:
+            defaults.botInstructions ??
+            "You are the owner's personal agent. The owner reaches you over chat; " +
+              "keep replies concise and conversational. Your first reply doubles as onboarding: " +
+              "briefly introduce yourself and what you can help with.",
+          notifyOnFinish: true,
+        },
+        defaults,
+      ),
     );
     botId = bot.id;
   }

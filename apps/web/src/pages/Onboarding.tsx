@@ -5,6 +5,7 @@ import {
   cloudflareModelRouting,
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_TOKENS,
+  FIRST_BOT_SPAWN_KEY,
   isCloudflareModelProvider,
   isOllamaCloudBaseUrl,
   MAX_MODEL_CONTEXT_WINDOW,
@@ -86,7 +87,6 @@ function providerOptionValue(provider: string, auth?: ProviderAuth): string {
   return auth ? `${provider}:${auth}` : provider;
 }
 const FIRST_BOT_NAME = "Chief";
-const FIRST_BOT_SPAWN_KEY = "onboarding:first";
 const FIRST_BOT_LOCK = "rakazo:onboarding-first-bot";
 
 /** Survives StrictMode remounts; concurrent first-bot creates share one in-flight attempt. */

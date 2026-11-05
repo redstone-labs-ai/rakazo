@@ -556,6 +556,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     signupsEnabled: env.signupsEnabled,
     signupAllowlist: env.signupAllowlist,
     singleAccount: Boolean(env.desktopStackToken),
+    newUserDefaults: env.newUserDefaults,
     email,
     logger: {
       level: "error",
@@ -867,6 +868,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       desktopHostChoiceEnabled: Boolean(env.desktopStackToken),
       mcpStdioEnabled: env.mcpStdioEnabled,
       mcpStdioAllowedCommands: env.mcpStdioAllowedCommands,
+      newUserDefaults: env.newUserDefaults,
     },
   });
   const rpc = new RPCHandler(router, {
@@ -1093,7 +1095,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       events,
       jobs,
       sandbox,
-      provision: (request, policyEnv) => provisionMessagingIdentity(prisma, request, policyEnv),
+      provision: (request, policyEnv) =>
+        provisionMessagingIdentity(prisma, request, policyEnv, env.newUserDefaults),
       openSignup: env.messagingOpenSignup,
       signupPolicy: {
         signupsEnabled: env.signupsEnabled,

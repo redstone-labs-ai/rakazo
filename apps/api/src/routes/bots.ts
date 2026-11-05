@@ -28,7 +28,7 @@ import type {
   SettingsScope,
   VaultPutInput,
 } from "@rakazo/contracts";
-import { BotSecretAuth, resolveBotAvatarSet } from "@rakazo/contracts";
+import { BotSecretAuth, FIRST_BOT_SPAWN_KEY, resolveBotAvatarSet } from "@rakazo/contracts";
 import { ACTIVE_RUN_STATUSES, displayName } from "@rakazo/core";
 import type { Prisma } from "@rakazo/db";
 import {
@@ -37,6 +37,7 @@ import {
   ComputerLimitError,
   commitBotUpdate,
   expireComputerExecutionLeases,
+  firstBotWithDefaults,
   InstructionConflictError,
   IsolationError,
   recordComputerRunEnd,
@@ -312,7 +313,12 @@ export function botsRoutes(ctx: RouterContext) {
         try {
           // Older apps always send Original, which would pin every new bot to it.
           const { avatarSet: _ignored, ...request } = input;
-          bot = await repos.createBot(context.actor, request);
+          bot = await repos.createBot(
+            context.actor,
+            request.spawnKey === FIRST_BOT_SPAWN_KEY
+              ? firstBotWithDefaults(context.actor, request, deps.env?.newUserDefaults)
+              : request,
+          );
         } catch (error) {
           throw mapSpaceLifecycleError(error);
         }
