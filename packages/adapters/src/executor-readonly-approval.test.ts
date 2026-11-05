@@ -96,6 +96,7 @@ function fixture({
   disabledBuiltinTools = [],
   parallelCalls = false,
   sourceRole,
+  groupChat = false,
   existingSharedMemory,
   advanceRevisionAfterRead = false,
   fleetManagement = false,
@@ -126,6 +127,8 @@ function fixture({
   fleetBots?: { id: string; name: string; thread?: { id: string } }[];
   parallelCalls?: boolean;
   sourceRole?: string;
+  /** A message someone wrote in a linked group chat starts the run. */
+  groupChat?: boolean;
   builtin?: boolean;
   disabledBuiltinTools?: string[];
   existingSharedMemory?: string;
@@ -197,8 +200,8 @@ function fixture({
     spaceId: "space-1",
     userId: "user-1",
     status: "queued",
-    trigger,
-    sourceMessageId: sourceRole ? "source-1" : null,
+    trigger: groupChat ? "messaging" : trigger,
+    sourceMessageId: sourceRole || groupChat ? "source-1" : null,
     leaseFence: 0,
   };
   const createdAt = new Map<string, Date>();
@@ -388,7 +391,25 @@ function fixture({
         async (_query?: { where?: { OR?: unknown } }): Promise<{ id: string } | null> => null,
       ),
       findUnique: vi.fn(async () =>
-        sourceRole ? { role: sourceRole, blocks: [{ kind: "text", text: prompt }] } : null,
+        groupChat
+          ? {
+              role: "user",
+              clientNonce: "messaging:chat:message-1",
+              blocks: [
+                {
+                  kind: "channel_message",
+                  provider: "chat",
+                  channelId: "channel-1",
+                  fromAddress: "member-2",
+                  fromLabel: "Sam",
+                  text: prompt,
+                  hop: 0,
+                },
+              ],
+            }
+          : sourceRole
+            ? { role: sourceRole, blocks: [{ kind: "text", text: prompt }] }
+            : null,
       ),
       findMany: vi.fn(async () => []),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -1053,6 +1074,39 @@ describe("connector read-only metadata and approval enforcement", () => {
         skipApprovals: true,
         rules: [{ effect: "require_approval", matchKind: "tool", matchValue: "demo_send_message" }],
       });
+      await f.run();
+      expect(f.execute).toHaveBeenCalledOnce();
+      expect(f.pauseRunForInput).not.toHaveBeenCalled();
+    });
+
+    it("asks the owner before a group chat's write, even in Never ask", async () => {
+      const f = fixture({
+        catalog,
+        name: "demo_send_message",
+        readOnly: false,
+        groupChat: true,
+        skipApprovals: true,
+        rules: [{ effect: "always_allow", matchKind: "tool", matchValue: "demo_send_message" }],
+      });
+      await f.run();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(f.pauseRunForInput).toHaveBeenCalledOnce();
+      expect(reviewMock).not.toHaveBeenCalled();
+
+      const direct = fixture({
+        catalog,
+        name: "demo_send_message",
+        readOnly: false,
+        trigger: "messaging",
+        skipApprovals: true,
+      });
+      await direct.run();
+      expect(direct.execute).toHaveBeenCalledOnce();
+      expect(direct.pauseRunForInput).not.toHaveBeenCalled();
+    });
+
+    it("runs a group chat's read in Never ask without asking", async () => {
+      const f = fixture({ catalog, groupChat: true, skipApprovals: true });
       await f.run();
       expect(f.execute).toHaveBeenCalledOnce();
       expect(f.pauseRunForInput).not.toHaveBeenCalled();

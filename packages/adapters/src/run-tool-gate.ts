@@ -267,7 +267,18 @@ export async function gateToolCall(
       ));
   // A gated read still fails closed when its review errors, and keeps its approval key.
   const gated = requiresApprovalByDefault || connectorReadGated;
+  // A group chat run acts on the owner's connections for whoever wrote in the group, so every
+  // connector call that may change something goes to the owner, whatever their approval mode.
+  const groupChatChange =
+    Boolean(ctx.source.messagingChannelRun) &&
+    viaConnector &&
+    !catalogControlRead &&
+    (unidentifiedAction ||
+      approvalToolNames.some((toolName) =>
+        connectorToolRequiresApproval(toolName, declaredReadOnlyFor(toolName)),
+      ));
   const requiresMandatoryApproval =
+    groupChatChange ||
     paying ||
     commandWatch ||
     scheduleNamesNewSite ||
@@ -341,6 +352,7 @@ export async function gateToolCall(
         checkerConfigured,
         newDestination: siteGate === "new",
         purchase: paying,
+        groupChat: groupChatChange,
       });
   // Nobody is there to approve a purchase a webhook run reaches.
   if (paying && run.trigger === "webhook" && plan !== "deny") {

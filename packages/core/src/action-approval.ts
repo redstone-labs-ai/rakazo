@@ -558,8 +558,9 @@ export function approvalPreferenceFromMode(mode: ApprovalMode): {
 export type AutoReviewJudgeDecision = "pass" | "ask" | "error";
 
 /**
- * The gate after rule resolution. A block refuses in every mode. A purchase asks in every mode, Never
- * ask included, and no allow rule or review passes it. An approval a person must give
+ * The gate after rule resolution. A block refuses in every mode. A purchase, or a change a group
+ * chat could have asked for, asks in every mode, Never ask included, and no allow rule or review
+ * passes it. An approval a person must give
  * asks, except in Never ask, which never waits: there it runs, unless `steerable` says outside
  * text could have asked for it. Otherwise Never ask runs it, an ask rule asks, and anything that
  * would ask goes to the approval model in Auto, falling back to asking when no model is set up.
@@ -582,9 +583,14 @@ export function planActionGate(input: {
   newDestination?: boolean;
   /** A click that completes a purchase: a person approves it each time, in every mode. */
   purchase?: boolean;
+  /**
+   * A change to one of the owner's connections in a run a group chat started: anyone in the
+   * group could have asked for it, so the owner approves it each time, in every mode.
+   */
+  groupChat?: boolean;
 }): "ask" | "allow" | "judge" | "deny" {
   if (input.resolved.decision === "deny") return "deny";
-  if (input.purchase) return "ask";
+  if (input.purchase || input.groupChat) return "ask";
   if (input.mandatory) {
     if (input.mode !== "never") return "ask";
     return input.steerable ? "deny" : "allow";
