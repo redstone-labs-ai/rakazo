@@ -33,6 +33,7 @@ import {
   serverAvailability,
   serverSecretSpace,
 } from "../availability.js";
+import { isHiddenPlugin } from "../hidden-plugins.js";
 import { searchIntegrationCatalog } from "../integration-catalog.js";
 import {
   queueMcpConnectedRun,
@@ -81,6 +82,12 @@ export function mcpRoutes(ctx: RouterContext) {
     authed,
   } = ctx;
   const pluginMarketplace = createPluginMarketplace(deps.pluginMarketplaceRead);
+  const hidden = deps.env.hiddenMarketplacePlugins;
+  /** A hidden plugin is refused here too, so a stale listing or a direct call cannot add it. */
+  const assertNotHidden = (source: string) => {
+    if (isHiddenPlugin(hidden, source))
+      throw new ORPCError("FORBIDDEN", { message: "This plugin isn't available here" });
+  };
   /** Removes an install and, for a plugin, the servers, secrets and skills it added. */
   const removeInstall = async (actor: Actor, id: string) => {
     const notify: Array<{ threadId: string; seq: number }> = [];
@@ -130,7 +137,9 @@ export function mcpRoutes(ctx: RouterContext) {
           entries: [
             ...approved.filter((entry) => matchesPluginQuery(entry, input.query)),
             ...catalog.entries.filter((entry) => !reviewed.has(entry.installedSource)),
-          ].sort(comparePlugins),
+          ]
+            .filter((entry) => !isHiddenPlugin(hidden, entry.installedSource))
+            .sort(comparePlugins),
         };
       }),
       submissions: authed.marketplace.submissions.handler(async ({ context, input }) => {
@@ -182,6 +191,7 @@ export function mcpRoutes(ctx: RouterContext) {
       }),
       install: authed.capabilities.install.handler(async ({ context, input }) => {
         if (input.kind === "plugin") {
+          assertNotHidden(input.source);
           return installPlugin(
             {
               prisma: deps.prisma,
@@ -319,6 +329,7 @@ export function mcpRoutes(ctx: RouterContext) {
         };
       }),
       pluginPreview: authed.capabilities.pluginPreview.handler(async ({ context, input }) => {
+        assertNotHidden(input.source);
         try {
           const preview = await previewPluginInstall({
             source: input.source,

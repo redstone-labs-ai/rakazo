@@ -122,6 +122,8 @@ export interface RouterDeps {
     ticketBoardEnabled?: boolean;
     navLinks?: NavLink[];
     adminEmails?: string[];
+    /** Plugin sources the marketplace leaves out and refuses to install. */
+    hiddenMarketplacePlugins?: string[];
     phoneCallsEnabled?: boolean;
     phoneCallRingSeconds?: number;
     maxUploadSizeBytes?: number;

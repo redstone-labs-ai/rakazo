@@ -850,6 +850,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       ticketBoardEnabled,
       navLinks: env.navLinks,
       adminEmails: env.adminEmails,
+      hiddenMarketplacePlugins: env.hiddenMarketplacePlugins,
       maxUploadSizeBytes: env.maxUploadSizeBytes,
       maxAttachmentsPerMessage: env.maxAttachmentsPerMessage,
       agentRuntime: env.agentRuntime,

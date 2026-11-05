@@ -2,6 +2,7 @@ import { createRouterClient } from "@orpc/server";
 import type { PluginRepoFetcher } from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { hiddenPluginsFromEnv } from "./hidden-plugins.js";
 import type { RouterDeps } from "./router.js";
 import { createRouter } from "./router.js";
 
@@ -21,7 +22,11 @@ const approved = {
   hasConnector: false,
   skillCount: 1,
 };
-function setup(approvedRows: (typeof approved)[] = [], pluginRepoFetcher?: PluginRepoFetcher) {
+function setup(
+  approvedRows: (typeof approved)[] = [],
+  pluginRepoFetcher?: PluginRepoFetcher,
+  hiddenMarketplacePlugins?: string[],
+) {
   const read = vi.fn(async (url: string) => {
     if (url.includes("/git/trees/"))
       return JSON.stringify({ tree: [{ path: "notes/skills/plan/SKILL.md", type: "blob" }] });
@@ -43,6 +48,7 @@ function setup(approvedRows: (typeof approved)[] = [], pluginRepoFetcher?: Plugi
       defaultProvider: "fake",
       defaultModel: "fake",
       adminEmails: ["admin@example.test"],
+      hiddenMarketplacePlugins,
     },
     dataDir: "/tmp/marketplace-rpc-test",
   } as unknown as RouterDeps);
@@ -91,6 +97,36 @@ describe("marketplace RPC", () => {
     expect(preview.builtinNames).toEqual(["Interrogate"]);
     const after = await client(actor).marketplace.catalog({ query: "notes" });
     expect(after.entries.map((row) => row.source)).toContain(entry!.source);
+  });
+  it("leaves hidden plugins out of browse and lists the rest", async () => {
+    const hidden = hiddenPluginsFromEnv("cursor/plugins#notes");
+    const { client } = setup([], undefined, hidden);
+    const result = await client(actor).marketplace.catalog({ query: "notes" });
+    expect(result.entries.map((row) => row.registry)).toEqual(["xAI"]);
+  });
+  it("hides a reviewed submission that matches a hidden prefix", async () => {
+    const hidden = hiddenPluginsFromEnv("xai-org/plugin-marketplace#*");
+    const { client } = setup([approved], undefined, hidden);
+    const result = await client(actor).marketplace.catalog({ query: "notes" });
+    expect(result.entries.map((row) => row.registry)).toEqual(["Cursor"]);
+  });
+  it("refuses to preview or install a hidden plugin, even when pinned", async () => {
+    const fetcher = vi.fn<PluginRepoFetcher>();
+    const { client } = setup([], fetcher, hiddenPluginsFromEnv("cursor/plugins#notes"));
+    const source = `https://github.com/cursor/plugins@${"c".repeat(40)}#notes`;
+    await expect(client(actor).capabilities.pluginPreview({ source })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "This plugin isn't available here",
+    });
+    await expect(
+      client(actor).capabilities.install({
+        kind: "plugin",
+        name: "Notes",
+        source,
+        pluginDigest: `sha256:${"0".repeat(64)}`,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("keeps submissions to admins", async () => {
     const { client } = setup();
