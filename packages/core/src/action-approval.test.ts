@@ -517,6 +517,15 @@ describe("planActionGate", () => {
     }
   });
 
+  it("asks for a group chat's change in every mode, past an allow rule, and still refuses a block", () => {
+    for (const mode of ["never", "auto", "ask"] as const) {
+      expect(gate(mode, { groupChat: true })).toBe("ask");
+      expect(gate(mode, { groupChat: true, resolved: allowed })).toBe("ask");
+      expect(gate(mode, { groupChat: true, mandatory: true, steerable: true })).toBe("ask");
+      expect(gate(mode, { groupChat: true, resolved: blocked })).toBe("deny");
+    }
+  });
+
   it("runs reads in every mode", () => {
     for (const mode of ["never", "auto", "ask"] as const) {
       expect(gate(mode, { consequential: false })).toBe("allow");
