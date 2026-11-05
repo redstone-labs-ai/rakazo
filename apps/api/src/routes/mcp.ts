@@ -82,10 +82,9 @@ export function mcpRoutes(ctx: RouterContext) {
     authed,
   } = ctx;
   const pluginMarketplace = createPluginMarketplace(deps.pluginMarketplaceRead);
-  const hidden = deps.env.hiddenMarketplacePlugins;
   /** A hidden plugin is refused here too, so a stale listing or a direct call cannot add it. */
   const assertNotHidden = (source: string) => {
-    if (isHiddenPlugin(hidden, source))
+    if (isHiddenPlugin(deps.env.hiddenMarketplacePlugins, source))
       throw new ORPCError("FORBIDDEN", { message: "This plugin isn't available here" });
   };
   /** Removes an install and, for a plugin, the servers, secrets and skills it added. */
@@ -138,7 +137,9 @@ export function mcpRoutes(ctx: RouterContext) {
             ...approved.filter((entry) => matchesPluginQuery(entry, input.query)),
             ...catalog.entries.filter((entry) => !reviewed.has(entry.installedSource)),
           ]
-            .filter((entry) => !isHiddenPlugin(hidden, entry.installedSource))
+            .filter(
+              (entry) => !isHiddenPlugin(deps.env.hiddenMarketplacePlugins, entry.installedSource),
+            )
             .sort(comparePlugins),
         };
       }),
