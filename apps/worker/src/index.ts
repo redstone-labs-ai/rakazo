@@ -315,6 +315,7 @@ async function main() {
     events,
     onTicketChange: ticketChanges,
     ticketBoardEnabled,
+    groupRunsReadOnly: process.env.RAKAZO_GROUP_RUNS_READ_ONLY === "true",
     ...phoneCallSettings(process.env),
     messaging: messaging ? createMessagingContextLoader(prisma) : undefined,
     web: createWebProvider(),

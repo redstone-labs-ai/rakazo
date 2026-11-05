@@ -82,6 +82,7 @@ ceiling because Node's HTTP client stops waiting at that point on its own.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `TICKET_BOARD_ENABLED` | `false` | Turns on the ticket board. Set it on the API and worker. |
+| `RAKAZO_GROUP_RUNS_READ_ONLY` | `false` | `true` lets bots only read connected apps when someone else starts the run from a group chat or team conversation. Calls declared read-only or named like a read (get, list, search, find, read) run; anything else is refused instead of asking the owner. Set it on the API and worker. |
 | `USER_DEVICES_ENABLED` | on | `false` stops signed-in desktop apps from letting bots run commands on the user's own computer. Set it on the API and worker. |
 | `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
 | `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |
