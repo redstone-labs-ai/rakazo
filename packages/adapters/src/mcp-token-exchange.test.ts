@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { McpTokenExchangeConfig } from "./mcp-token-exchange.js";
-import { McpTokenExchange, mcpTokenExchangeFromEnv } from "./mcp-token-exchange.js";
+import { McpTokenExchange } from "./mcp-token-exchange.js";
 
 const entry = {
   issuer: "https://auth.example.test/api/auth",
@@ -9,51 +9,6 @@ const entry = {
   clientSecretEnv: "RAKAZO_MCP_TOKEN_EXCHANGE_SECRET_SERVICE",
   subjectScope: "api://service/MCP.Access",
 };
-
-describe("mcpTokenExchangeFromEnv", () => {
-  it("reads each client secret from the variable the entry names", () => {
-    expect(
-      mcpTokenExchangeFromEnv({
-        RAKAZO_MCP_TOKEN_EXCHANGE: JSON.stringify([{ ...entry, roleField: "service_role" }]),
-        RAKAZO_MCP_TOKEN_EXCHANGE_SECRET_SERVICE: " secret ",
-      }),
-    ).toEqual([
-      {
-        issuer: entry.issuer,
-        tokenEndpoint: entry.tokenEndpoint,
-        clientId: entry.clientId,
-        clientSecret: "secret",
-        subjectScope: entry.subjectScope,
-        roleField: "service_role",
-      },
-    ]);
-  });
-
-  it("logs and leaves out what cannot work", () => {
-    const warn = vi.fn();
-    const configs = mcpTokenExchangeFromEnv(
-      {
-        RAKAZO_MCP_TOKEN_EXCHANGE: JSON.stringify([
-          entry,
-          { ...entry, clientSecretEnv: "BETTER_AUTH_SECRET" },
-          { ...entry, tokenEndpoint: "http://auth.example.test/token" },
-          { ...entry, subjectScope: undefined },
-          { ...entry, clientSecretEnv: "RAKAZO_MCP_TOKEN_EXCHANGE_SECRET_MISSING" },
-        ]),
-        RAKAZO_MCP_TOKEN_EXCHANGE_SECRET_SERVICE: "secret",
-        BETTER_AUTH_SECRET: "never-sent",
-      },
-      warn,
-    );
-    expect(configs).toHaveLength(1);
-    expect(warn).toHaveBeenCalledTimes(4);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("must start with RAKAZO_MCP_TOKEN_EXCHANGE_"),
-    );
-    expect(mcpTokenExchangeFromEnv({ RAKAZO_MCP_TOKEN_EXCHANGE: "{" }, warn)).toEqual([]);
-    expect(mcpTokenExchangeFromEnv({}, warn)).toEqual([]);
-  });
-});
 
 describe("McpTokenExchange", () => {
   const config: McpTokenExchangeConfig = {

@@ -9,7 +9,6 @@ import {
   boatApiKeyFromEnv,
   boatApiUrlFromEnv,
   mcpStdioOptionsFromEnv,
-  mcpTokenExchangeFromEnv,
   photonProjectsFromEnv,
   resolveCloudAgentProvider,
   resolveDeploymentModel,
@@ -36,6 +35,7 @@ import { monitoringPseudonymSecret } from "@rakazo/logging";
 import type { DefaultMcpServer } from "./default-mcp-servers.js";
 import { defaultMcpServersFromEnv } from "./default-mcp-servers.js";
 import { hiddenPluginsFromEnv } from "./hidden-plugins.js";
+import { mcpTokenExchangeFromEnv } from "./mcp-token-exchange.js";
 import { newUserDefaultsFromEnv } from "./new-user-defaults.js";
 
 export { resolveCloudAgentProvider, resolveSandboxProvider } from "@rakazo/adapters";

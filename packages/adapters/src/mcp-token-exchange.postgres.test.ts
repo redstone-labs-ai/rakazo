@@ -271,6 +271,50 @@ describePostgres("MCP grants issued by token exchange (PostgreSQL contract)", ()
     expect((await stored(server.id)).oauth?.tokens?.access_token).toBe("issued-2");
   });
 
+  it("issues a grant again on renewal, and reconnects one a worker dropped", async () => {
+    const { broker, exchanges, refreshes } = harness();
+    const { server, context } = await seed();
+    await runAsTenant(context, () => broker.connectIssued(server, context));
+    const read = () =>
+      asSystem(db.prisma).mcpServer.findUniqueOrThrow({ where: { id: server.id } });
+    const before = await runAsTenant(context, async () =>
+      broker.issuedGrant(await read(), context),
+    );
+    expect(before).toEqual({ issuedAt: expect.any(Number), connected: true });
+
+    expect(await runAsTenant(context, async () => broker.renewIssued(await read(), context))).toBe(
+      true,
+    );
+    expect((await stored(server.id)).oauth?.tokens?.access_token).toBe("issued-2");
+
+    // A process without the issuer drops a grant whose refresh is refused.
+    const dropped = await stored(server.id);
+    delete dropped.oauth!.tokens;
+    const prisma = asSystem(db.prisma);
+    const row = await read();
+    const next = await secrets.put(JSON.stringify(dropped), {
+      operationId: "test",
+      traceId: "test",
+      ...context,
+      signal: new AbortController().signal,
+    });
+    await prisma.secret.create({
+      data: { id: next.id, ...context, kind: "mcp", ciphertext: next.ciphertext },
+    });
+    await prisma.mcpServer.update({ where: { id: server.id }, data: { secretId: next.id } });
+    await prisma.secret.delete({ where: { id: row.secretId! } });
+    expect(
+      await runAsTenant(context, async () => broker.issuedGrant(await read(), context)),
+    ).toMatchObject({ connected: false });
+
+    expect(await runAsTenant(context, async () => broker.renewIssued(await read(), context))).toBe(
+      true,
+    );
+    expect((await stored(server.id)).oauth?.tokens?.access_token).toBe("issued-3");
+    expect(exchanges).toHaveLength(3);
+    expect(refreshes).toHaveLength(0);
+  });
+
   it("leaves servers of other authorization servers, or with their own client, alone", async () => {
     const other = harness({ issuer: OTHER_ISSUER });
     const first = await seed();

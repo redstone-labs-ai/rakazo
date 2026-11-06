@@ -53,6 +53,8 @@ export {
 export type { HomeDeletionReason } from "./home-deletion-email.js";
 export { homeDeletionEmail } from "./home-deletion-email.js";
 export type { OidcConfig } from "./oidc.js";
+export type { OidcDelegationConfig } from "./oidc-delegation.js";
+export { createOidcDelegation } from "./oidc-delegation.js";
 export { passkeyRelyingParty } from "./passkey.js";
 export {
   integrationClaimConfirmEmail,

@@ -1,10 +1,87 @@
 import type { McpOAuthBroker, McpTokenExchangeConfig } from "@rakazo/adapters";
 import { McpTokenExchange } from "@rakazo/adapters";
 import type { OidcConfig } from "@rakazo/auth";
-import { createOidcDelegation } from "@rakazo/auth/oidc-delegation";
+import { createOidcDelegation } from "@rakazo/auth";
 import type { PrismaClient } from "@rakazo/db";
 import { runAsSystem, runAsTenant } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
+
+/** Secrets are read only from variables with this prefix, so the list cannot send others. */
+export const MCP_TOKEN_EXCHANGE_SECRET_PREFIX = "RAKAZO_MCP_TOKEN_EXCHANGE_";
+
+/**
+ * RAKAZO_MCP_TOKEN_EXCHANGE: a JSON array of `{ issuer, tokenEndpoint, clientId,
+ * clientSecretEnv, subjectScope, roleField? }`. Each client secret is read from the variable
+ * `clientSecretEnv` names. An entry that does not parse is logged and left out.
+ */
+export function mcpTokenExchangeFromEnv(
+  source: NodeJS.ProcessEnv,
+  warn: (message: string) => void = (message) => getLogger().warn(message),
+): McpTokenExchangeConfig[] {
+  const raw = source.RAKAZO_MCP_TOKEN_EXCHANGE?.trim();
+  if (!raw) return [];
+  let list: unknown;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    warn("Ignoring RAKAZO_MCP_TOKEN_EXCHANGE: not valid JSON");
+    return [];
+  }
+  if (!Array.isArray(list)) {
+    warn("Ignoring RAKAZO_MCP_TOKEN_EXCHANGE: expected a JSON array");
+    return [];
+  }
+  const configs: McpTokenExchangeConfig[] = [];
+  for (const [index, item] of list.entries()) {
+    const fields: Record<string, unknown> = item && typeof item === "object" ? item : {};
+    const text = (key: string) =>
+      typeof fields[key] === "string" && fields[key].trim() ? fields[key].trim() : undefined;
+    const skip = (reason: string) =>
+      warn(`Ignoring RAKAZO_MCP_TOKEN_EXCHANGE entry ${index}: ${reason}`);
+    const issuer = httpsUrl(text("issuer"));
+    const tokenEndpoint = httpsUrl(text("tokenEndpoint"));
+    const clientId = text("clientId");
+    const subjectScope = text("subjectScope");
+    const secretEnv = text("clientSecretEnv");
+    if (!issuer || !tokenEndpoint) {
+      skip("issuer and tokenEndpoint must be HTTPS URLs");
+      continue;
+    }
+    if (!clientId || !subjectScope || !secretEnv) {
+      skip("clientId, clientSecretEnv and subjectScope are required");
+      continue;
+    }
+    if (!secretEnv.startsWith(MCP_TOKEN_EXCHANGE_SECRET_PREFIX)) {
+      skip(`clientSecretEnv must start with ${MCP_TOKEN_EXCHANGE_SECRET_PREFIX}`);
+      continue;
+    }
+    const clientSecret = source[secretEnv]?.trim();
+    if (!clientSecret) {
+      skip(`${secretEnv} is not set`);
+      continue;
+    }
+    const roleField = text("roleField");
+    configs.push({
+      issuer,
+      tokenEndpoint,
+      clientId,
+      clientSecret,
+      subjectScope,
+      ...(roleField ? { roleField } : {}),
+    });
+  }
+  return configs;
+}
+
+function httpsUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The token exchange a deployment configured, issuing grants for the SSO access token the
@@ -113,4 +190,59 @@ export async function connectIssuedAfterSignIn(
 ): Promise<void> {
   await connectIssuedMcpServers(deps, userId);
   if ((await provisionDefaults()).length) await connectIssuedMcpServers(deps, userId);
+}
+
+/**
+ * How long an issued grant is kept before it is issued again. Services commonly bind issued
+ * grants to a day-long session they reuse while it has an hour left, so an hourly sweep that
+ * renews after 23 hours lands in that last hour and starts a fresh session.
+ */
+export const ISSUED_GRANT_RENEW_AFTER_MS = 23 * 60 * 60_000;
+
+/**
+ * Keeps issued grants alive for people who never sign in again, such as those who only use a
+ * chat app, since only the API can issue them. For each person: when their oldest issued grant
+ * is due, or one was dropped (a worker cannot issue a new one), issue all of theirs again,
+ * together so they share the new session. Returns how many servers were renewed.
+ */
+export async function renewIssuedMcpGrants(
+  deps: { prisma: PrismaClient; mcpOAuth: McpOAuthBroker },
+  signal?: AbortSignal,
+  now = Date.now(),
+): Promise<number> {
+  const servers = await runAsSystem("renew issued MCP grants", () =>
+    deps.prisma.mcpServer.findMany({
+      where: { enabled: true, endpoint: { not: null }, secretId: { not: null } },
+      select: { id: true, userId: true, spaceId: true, endpoint: true, secretId: true },
+      orderBy: [{ userId: "asc" }, { createdAt: "asc" }],
+    }),
+  );
+  const byUser = new Map<string, typeof servers>();
+  for (const server of servers)
+    byUser.set(server.userId, [...(byUser.get(server.userId) ?? []), server]);
+  let renewed = 0;
+  for (const [userId, owned] of byUser) {
+    if (signal?.aborted) break;
+    try {
+      const issued = [];
+      for (const server of owned) {
+        const context = { spaceId: server.spaceId, userId };
+        const grant = await runAsTenant(context, () => deps.mcpOAuth.issuedGrant(server, context));
+        if (grant) issued.push({ server, context, grant });
+      }
+      const due = issued.some(
+        ({ grant }) =>
+          !grant.connected || (grant.issuedAt ?? 0) <= now - ISSUED_GRANT_RENEW_AFTER_MS,
+      );
+      if (!due) continue;
+      for (const { server, context } of issued)
+        if (await runAsTenant(context, () => deps.mcpOAuth.renewIssued(server, context)))
+          renewed += 1;
+    } catch (error) {
+      getLogger().warn("issued MCP grants not renewed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return renewed;
 }

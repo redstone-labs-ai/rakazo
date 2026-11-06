@@ -41,6 +41,8 @@ import { deleteSecretBestEffort, holdSecretNotifications } from "./secret-store-
 type OAuthState = {
   tokens?: OAuthTokens;
   obtainedAt?: number;
+  /** When the deployment's grant issuer last issued this grant (not a refresh). */
+  issuedAt?: number;
   clientInformation?: OAuthClientInformationMixed;
   discoveryState?: OAuthDiscoveryState;
   redirectUri?: string;
@@ -266,7 +268,7 @@ export class McpReauthorizationRequiredError extends Error {
 }
 
 /** The grant a provider holds: tokens and when they were issued. */
-type TokenGrant = Pick<OAuthState, "tokens" | "obtainedAt">;
+type TokenGrant = Pick<OAuthState, "tokens" | "obtainedAt" | "issuedAt">;
 
 /**
  * Writes the provider's material. `storedRefreshToken` is the refresh token
@@ -359,6 +361,8 @@ function applyGrant(oauth: OAuthState, grant: TokenGrant): void {
   else delete oauth.tokens;
   if (grant.obtainedAt) oauth.obtainedAt = grant.obtainedAt;
   else delete oauth.obtainedAt;
+  // A refresh keeps the grant the issuer issued.
+  if (grant.issuedAt) oauth.issuedAt = grant.issuedAt;
 }
 
 /** One SDK OAuth provider backed by the same encrypted material used at runtime. */
@@ -1535,8 +1539,13 @@ export class McpOAuthBroker {
       });
       return undefined;
     });
+    const now = Date.now();
     return tokens
-      ? { tokens: { ...tokens, issuer: discovery.authorizationServerUrl }, obtainedAt: Date.now() }
+      ? {
+          tokens: { ...tokens, issuer: discovery.authorizationServerUrl },
+          obtainedAt: now,
+          issuedAt: now,
+        }
       : undefined;
   }
 
@@ -1639,6 +1648,35 @@ export class McpOAuthBroker {
     }
   }
 
+  /** When the deployment's issuer issued the server's grant, if it did, and whether it holds tokens. */
+  async issuedGrant(
+    server: ServerRef,
+    context: ActorRef,
+  ): Promise<{ issuedAt?: number; connected: boolean } | undefined> {
+    const { material } = await this.loadMaterial(server, context);
+    if (!issuedClient(material, this.issuer)) return undefined;
+    return {
+      ...(material.oauth?.issuedAt ? { issuedAt: material.oauth.issuedAt } : {}),
+      connected: Boolean(material.oauth?.tokens),
+    };
+  }
+
+  /**
+   * Replaces an issued grant with a new one before the session it belongs to ends, or connects
+   * a server whose issued grant was dropped (by a process without the issuer). True when the
+   * server now holds a newly issued grant.
+   */
+  async renewIssued(server: ServerRef, context: ActorRef): Promise<boolean> {
+    const { material } = await this.loadMaterial(server, context);
+    if (!issuedClient(material, this.issuer)) return false;
+    const held = material.oauth?.tokens?.access_token;
+    if (!held) return this.connectIssued(server, context);
+    const grant = await holdSecretNotifications(() =>
+      this.reissueGrant(server.id, server.endpoint, context, held),
+    );
+    return Boolean(grant?.tokens && grant.tokens.access_token !== held);
+  }
+
   /**
    * Stores a grant obtained outside the interactive flow, with the discovery that later
    * refreshes use, and rebuilds cached sessions. False when the server uses a client of its own.
@@ -1660,6 +1698,7 @@ export class McpOAuthBroker {
       ...(material.oauth?.redirectUri ? { redirectUri: material.oauth.redirectUri } : {}),
       tokens: { ...grant.tokens, issuer },
       obtainedAt: Date.now(),
+      issuedAt: Date.now(),
       // The secret stays with the deployment; refresh takes it from the issuer.
       clientInformation: {
         client_id: grant.clientId,
