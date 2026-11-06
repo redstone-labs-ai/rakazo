@@ -46,7 +46,20 @@ export function teamsPlatform(credentials: {
     channelName: teamsChannelName,
     normalizeThreadId: teamsChannelThreadId,
     isPermanentSendError: isTeamsUnreachable,
+    directoryUser: teamsDirectoryUser,
   };
+}
+
+/**
+ * The sender's Microsoft Entra account. The adapter only passes activities from the configured
+ * tenant whose Bot Framework token it verified, so the ids are Microsoft's.
+ */
+export function teamsDirectoryUser(activity: unknown) {
+  const objectId = asRecord(asRecord(activity)?.from)?.aadObjectId;
+  const tenantId = teamsActivityTenant(activity);
+  return typeof objectId === "string" && objectId && tenantId
+    ? { tenantId, objectId: objectId.toLowerCase() }
+    : undefined;
 }
 
 /** The tenant a Bot Framework activity came from, lowercased. */

@@ -22,6 +22,9 @@ function createDeps(
     routines?: Array<{ id: string; name: string; prompt: string }>;
     storeAttachment?: MessagingInboundDeps["storeAttachment"];
     transcribe?: MessagingInboundDeps["transcribe"];
+    directoryUserId?: string;
+    bots?: Array<{ id: string; spaceId: string }>;
+    linkedBotIds?: string[];
   } = {},
 ) {
   const identity =
@@ -110,7 +113,15 @@ function createDeps(
             botId?: string;
           };
         }) => {
-          if (!identity) return null;
+          if (!identity)
+            return (
+              createdIdentities.find(
+                (row) =>
+                  where.provider_address &&
+                  row.provider === where.provider_address.provider &&
+                  row.address === where.provider_address.address,
+              ) ?? null
+            );
           if (where.provider_address && where.provider_address.address !== identity.address) {
             return null;
           }
@@ -118,6 +129,7 @@ function createDeps(
         },
       ),
       update: vi.fn(async () => identity),
+      findMany: vi.fn(async () => (overrides.linkedBotIds ?? []).map((botId) => ({ botId }))),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const created = { id: "mi-linked", ...data };
         createdIdentities.push(created);
@@ -125,7 +137,15 @@ function createDeps(
       }),
     },
     messagingLinkCode,
-    bot: { findUnique: vi.fn(async () => ({ name: "Chief" })) },
+    bot: {
+      findUnique: vi.fn(async () => ({ name: "Chief" })),
+      findMany: vi.fn(async () => overrides.bots ?? []),
+    },
+    directoryIdentity: {
+      findUnique: vi.fn(async () =>
+        overrides.directoryUserId ? { userId: overrides.directoryUserId } : null,
+      ),
+    },
     run: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => runs.get(where.id) ?? null),
     },
@@ -2619,6 +2639,86 @@ describe("createMessagingInboundHandler linking", () => {
     expect(deps.createdIdentities).toHaveLength(0);
     expect(deps.outboundRows).toHaveLength(0);
     expect(deps.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  describe("by directory account", () => {
+    const teamsEvent = {
+      ...dmEvent,
+      provider: "teams",
+      from: "29:ada",
+      threadId: "teams:dm-1",
+      content: "What is on my calendar?",
+      directoryUser: { tenantId: "tenant-1", objectId: "object-1" },
+    };
+    const linking = (overrides: Parameters<typeof createDeps>[0] = {}) => {
+      const deps = createDeps({
+        identity: null,
+        directoryUserId: "user-web",
+        bots: [
+          { id: "bot-linked", spaceId: "ws-web" },
+          { id: "bot-web", spaceId: "ws-web" },
+        ],
+        linkedBotIds: ["bot-linked"],
+        ...overrides,
+      });
+      deps.openSignup = false;
+      deps.directoryLinking = true;
+      return deps;
+    };
+
+    it("links the sender to the person's first free bot and answers the message", async () => {
+      const deps = linking();
+      await createMessagingInboundHandler(deps)(teamsEvent);
+
+      expect(deps.prisma.directoryIdentity.findUnique).toHaveBeenCalledWith({
+        where: { tenantId_objectId: { tenantId: "tenant-1", objectId: "object-1" } },
+      });
+      expect(deps.createdIdentities).toEqual([
+        expect.objectContaining({
+          provider: "teams",
+          address: "29:ada",
+          dmThreadId: "teams:dm-1",
+          userId: "user-web",
+          spaceId: "ws-web",
+          botId: "bot-web",
+        }),
+      ]);
+      expect(deps.outboundRows).toEqual([
+        expect.objectContaining({
+          idempotencyKey: "directory-link:mi-linked",
+          body: 'Linked. Messages here now reach "Chief".',
+        }),
+      ]);
+      expect(deps.provision).not.toHaveBeenCalled();
+      expect(deps.sendUserMessage).toHaveBeenCalled();
+    });
+
+    it("falls back to link codes when off, unmatched, or out of free bots", async () => {
+      const off = linking();
+      off.directoryLinking = false;
+      await createMessagingInboundHandler(off)(teamsEvent);
+      const stranger = linking({ directoryUserId: undefined });
+      await createMessagingInboundHandler(stranger)(teamsEvent);
+      const full = linking({ linkedBotIds: ["bot-linked", "bot-web"] });
+      await createMessagingInboundHandler(full)(teamsEvent);
+      const unverified = linking();
+      await createMessagingInboundHandler(unverified)({ ...teamsEvent, directoryUser: undefined });
+      for (const deps of [off, stranger, full, unverified]) {
+        expect(deps.createdIdentities).toHaveLength(0);
+        expect(deps.sendUserMessage).not.toHaveBeenCalled();
+      }
+      expect(off.prisma.directoryIdentity.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("links within the space the app was installed in", async () => {
+      const deps = linking();
+      await createMessagingInboundHandler(deps)({ ...teamsEvent, installationSpaceId: "ws-team" });
+      expect(deps.prisma.bot.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: "user-web", spaceId: "ws-team" }),
+        }),
+      );
+    });
   });
 
   it("still auto-provisions unknown senders when open signup is on", async () => {

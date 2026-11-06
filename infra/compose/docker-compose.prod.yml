@@ -279,6 +279,7 @@ x-app-environment: &app-environment
   TEAMS_APP_ID:
   TEAMS_APP_PASSWORD:
   TEAMS_APP_TENANT_ID:
+  RAKAZO_TEAMS_AUTO_LINK:
   # Optional egress proxy (Mainland / corporate). Empty = unset; either case works.
   HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
   HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}

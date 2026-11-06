@@ -119,6 +119,8 @@ export interface MessagingPlatform {
   normalizeThreadId?: (threadId: string, raw: unknown) => string;
   /** User-facing transport carried by the raw message when it differs from the provider. */
   transport?: (raw: unknown) => string | null;
+  /** The sender's directory account carried by a verified raw message. */
+  directoryUser?: (raw: unknown) => MessagingInboundMessage["directoryUser"];
   /**
    * Optional team-room enrichment (workspace id, mention/ambient kind, bot
    * sender, reply thread) derived from the raw platform payload.
@@ -486,6 +488,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     const transport = platform.transport?.(message.raw) ?? null;
     const attachments = inboundAttachments(message);
     const departures = isDirect ? undefined : platform.departures?.(message.raw);
+    const directoryUser = isDirect ? platform.directoryUser?.(message.raw) : undefined;
     const base: MessagingInboundMessage = {
       type: "message",
       provider: platform.provider,
@@ -514,6 +517,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       ...(attachments.length ? { attachments } : {}),
       ...(!isDirect && message.isMention ? { mentionsBot: true } : {}),
       ...(departures ? { departures } : {}),
+      ...(directoryUser ? { directoryUser } : {}),
     };
     const enrichment = platform.enrichTeamRoom?.(message.raw, base) ?? {};
     return { ...base, ...enrichment };

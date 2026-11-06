@@ -310,6 +310,82 @@ export async function redeemMessagingLinkCode(
   }
 }
 
+/**
+ * Bind an unlinked sender to the user whose SSO sign-in named the same directory account, on
+ * that user's earliest bot not linked to a chat app yet (in the installation's space, for an
+ * installed app). Null when no user or free bot matches, or a concurrent link won; the sender
+ * then links with a code as before.
+ */
+export async function linkMessagingIdentityByDirectory(
+  prisma: PrismaClient,
+  request: {
+    provider: string;
+    address: string;
+    dmThreadId: string | null;
+    directoryUser: { tenantId: string; objectId: string };
+    spaceId?: string;
+    installationId?: string;
+  },
+  confirm?: (tx: Prisma.TransactionClient, linked: RedeemedMessagingLink) => Promise<void>,
+): Promise<RedeemedMessagingLink | null> {
+  const directory = await prisma.directoryIdentity.findUnique({
+    where: {
+      tenantId_objectId: {
+        tenantId: request.directoryUser.tenantId.toLowerCase(),
+        objectId: request.directoryUser.objectId.toLowerCase(),
+      },
+    },
+  });
+  if (!directory) return null;
+  const bots = await prisma.bot.findMany({
+    where: {
+      userId: directory.userId,
+      archivedAt: null,
+      ...(request.spaceId ? { spaceId: request.spaceId } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, spaceId: true },
+  });
+  const linked = new Set(
+    (
+      await prisma.messagingIdentity.findMany({
+        where: { botId: { in: bots.map((bot) => bot.id) } },
+        select: { botId: true },
+      })
+    ).map((identity) => identity.botId),
+  );
+  const bot = bots.find((candidate) => !linked.has(candidate.id));
+  if (!bot) return null;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const identity = await tx.messagingIdentity.create({
+        data: {
+          provider: request.provider,
+          address: request.address,
+          dmThreadId: request.dmThreadId,
+          installationId: request.installationId,
+          userId: directory.userId,
+          spaceId: bot.spaceId,
+          botId: bot.id,
+        },
+      });
+      const result = {
+        identityId: identity.id,
+        userId: directory.userId,
+        spaceId: bot.spaceId,
+        botId: bot.id,
+        confirmationKey: `directory-link:${identity.id}`,
+      };
+      await confirm?.(tx, result);
+      return result;
+    });
+  } catch (error) {
+    // The address or the bot was linked by a concurrent message.
+    if (isUniqueViolationError(error)) return null;
+    throw error;
+  }
+}
+
 function isUniqueViolationError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }

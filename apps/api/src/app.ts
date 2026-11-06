@@ -1131,6 +1131,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       provision: (request, policyEnv) =>
         provisionMessagingIdentity(prisma, request, policyEnv, env.newUserDefaults),
       openSignup: env.messagingOpenSignup,
+      directoryLinking: env.teamsAutoLink,
       signupPolicy: {
         signupsEnabled: env.signupsEnabled,
         signupAllowlist: env.signupAllowlist,
