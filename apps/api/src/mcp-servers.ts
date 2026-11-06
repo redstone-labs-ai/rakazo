@@ -210,6 +210,63 @@ export function mcpCredentialRecords(
   return parsed.headers && parsed.env ? { headers: parsed.headers, env: parsed.env } : null;
 }
 
+/** Adds an MCP server row and its stored credential. */
+export async function insertMcpServer(
+  tx: Prisma.TransactionClient,
+  actor: Pick<Actor, "spaceId" | "userId">,
+  input: McpServerConfigInput,
+  stored: { id: string; ciphertext: string } | null,
+  // What the user adds reaches all their spaces and agents; an import stays with its agent.
+  options: { everywhere?: boolean } = {},
+) {
+  if (options.everywhere)
+    await assertNameFreeWhereAvailable(
+      tx,
+      "mcpServer",
+      actor,
+      input.slug,
+      userAddedAvailability(actor),
+    );
+  if (stored) {
+    await tx.secret.create({
+      data: {
+        id: stored.id,
+        userId: actor.userId,
+        spaceId: options.everywhere ? null : actor.spaceId,
+        kind: "mcp",
+        ciphertext: stored.ciphertext,
+      },
+    });
+  }
+  return tx.mcpServer.create({
+    data: {
+      spaceId: actor.spaceId,
+      userId: actor.userId,
+      allSpaces: options.everywhere ?? false,
+      allBots: options.everywhere ?? false,
+      slug: input.slug,
+      name: input.name,
+      description: input.description,
+      transport: input.transport,
+      endpoint: "endpoint" in input ? input.endpoint : null,
+      command: "command" in input ? input.command : null,
+      hasArgs: "args" in input && input.args.length > 0,
+      env: ("env" in input
+        ? Object.fromEntries(Object.keys(input.env).map((key) => [key, true]))
+        : {}) as Prisma.InputJsonValue,
+      files: Object.fromEntries(
+        Object.keys("files" in input ? (input.files ?? {}) : {}).map((key) => [key, true]),
+      ) as Prisma.InputJsonValue,
+      headers: ("headers" in input
+        ? Object.fromEntries(Object.keys(input.headers).map((key) => [key, true]))
+        : {}) as Prisma.InputJsonValue,
+      secretId: stored?.id,
+      enabled: input.enabled,
+      verbatimResults: input.verbatimResults,
+    },
+  });
+}
+
 export function createMcpServers(
   deps: RouterDeps,
   onboardingDeps: Parameters<typeof dismissMcpServerApprovals>[0],
@@ -300,61 +357,6 @@ export function createMcpServers(
     return secretPayload
       ? await deps.secrets.put(secretPayload, computerContext(actor, "mcp", "mcp.create"))
       : null;
-  };
-  const insertMcpServer = async (
-    tx: Prisma.TransactionClient,
-    actor: Actor,
-    input: McpServerConfigInput,
-    stored: Awaited<ReturnType<typeof prepareMcpServer>>,
-    // What the user adds reaches all their spaces and agents; an import stays with its agent.
-    options: { everywhere?: boolean } = {},
-  ) => {
-    if (options.everywhere)
-      await assertNameFreeWhereAvailable(
-        tx,
-        "mcpServer",
-        actor,
-        input.slug,
-        userAddedAvailability(actor),
-      );
-    if (stored) {
-      await tx.secret.create({
-        data: {
-          id: stored.id,
-          userId: actor.userId,
-          spaceId: options.everywhere ? null : actor.spaceId,
-          kind: "mcp",
-          ciphertext: stored.ciphertext,
-        },
-      });
-    }
-    return tx.mcpServer.create({
-      data: {
-        spaceId: actor.spaceId,
-        userId: actor.userId,
-        allSpaces: options.everywhere ?? false,
-        allBots: options.everywhere ?? false,
-        slug: input.slug,
-        name: input.name,
-        description: input.description,
-        transport: input.transport,
-        endpoint: "endpoint" in input ? input.endpoint : null,
-        command: "command" in input ? input.command : null,
-        hasArgs: "args" in input && input.args.length > 0,
-        env: ("env" in input
-          ? Object.fromEntries(Object.keys(input.env).map((key) => [key, true]))
-          : {}) as Prisma.InputJsonValue,
-        files: Object.fromEntries(
-          Object.keys("files" in input ? (input.files ?? {}) : {}).map((key) => [key, true]),
-        ) as Prisma.InputJsonValue,
-        headers: ("headers" in input
-          ? Object.fromEntries(Object.keys(input.headers).map((key) => [key, true]))
-          : {}) as Prisma.InputJsonValue,
-        secretId: stored?.id,
-        enabled: input.enabled,
-        verbatimResults: input.verbatimResults,
-      },
-    });
   };
   const announceMcpServer = async (row: McpServerRow, actor: Actor) => {
     const oauth = await mcpOAuth.summaryFor(row, actor);

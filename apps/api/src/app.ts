@@ -164,6 +164,7 @@ import {
   withClientIp,
 } from "./client-ip.js";
 import { cspReportRoutes } from "./csp-report.js";
+import { oidcRolesClaim, provisionDefaultMcpServers } from "./default-mcp-servers.js";
 import { configuredEmailProvider } from "./email.js";
 import type { AppEnv } from "./env.js";
 import { loadEnv } from "./env.js";
@@ -567,21 +568,25 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         ),
     },
     onEmailError,
-    afterSignIn:
-      email && env.welcomeEmailEnabled
-        ? (userId, headers) =>
-            sendWelcomeEmail(
-              {
-                prisma,
-                email,
-                origin: env.authUrl,
-                secret: env.authSecret,
-                onError: (error) => getLogger().error("welcome email delivery failed", error),
-              },
-              userId,
-              headers,
-            )
-        : undefined,
+    afterSignIn: async (userId, headers, oidcClaims) => {
+      if (email && env.welcomeEmailEnabled)
+        await sendWelcomeEmail(
+          {
+            prisma,
+            email,
+            origin: env.authUrl,
+            secret: env.authSecret,
+            onError: (error) => getLogger().error("welcome email delivery failed", error),
+          },
+          userId,
+          headers,
+        );
+      if (env.defaultMcpServers.length)
+        await provisionDefaultMcpServers({ prisma, secrets }, userId, env.defaultMcpServers, {
+          roles: [],
+          oidcRoles: oidcRolesClaim(oidcClaims),
+        }).catch((error) => getLogger().error("default MCP servers failed", error));
+    },
     extraOrigins: MOBILE_AUTH_ORIGINS,
     androidAppCertFingerprints: env.passkeyAndroidCertFingerprints,
     beforeDeleteUser: async (userId) => {

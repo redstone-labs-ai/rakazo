@@ -241,17 +241,29 @@ export async function isCurrentOidcAccount(
   issuer: string | undefined,
   key: TokenKey,
 ) {
-  if (!issuer || account.providerId !== "oidc") return false;
+  return (await storedOidcClaims(account, issuer, key)) !== undefined;
+}
+
+/**
+ * The claims of the account's stored ID token, which was verified when the account signed in.
+ * Undefined unless the token belongs to this account at this issuer.
+ */
+export async function storedOidcClaims(
+  account: { providerId: string; accountId: string; idToken?: string | null },
+  issuer: string | undefined,
+  key: TokenKey,
+): Promise<Record<string, unknown> | undefined> {
+  if (!issuer || account.providerId !== "oidc") return undefined;
   const idToken = await openIdToken(key, account.idToken);
-  if (!idToken) return false;
+  if (!idToken) return undefined;
   try {
     const claims = JSON.parse(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString());
-    return (
-      claims.iss === issuer &&
+    return claims?.iss === issuer &&
       typeof claims.sub === "string" &&
       account.accountId === oidcAccountSubject(issuer, claims.sub)
-    );
+      ? claims
+      : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }

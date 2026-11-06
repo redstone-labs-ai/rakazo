@@ -70,6 +70,7 @@ model User {
   pushToken                   PushToken?
   callPushDevices             CallPushDevice[]
   trustedLinkSites            TrustedLinkSite[]
+  defaultMcpServerOffers      DefaultMcpServerOffer[]
   feedbackReports             FeedbackReport[]
   emailSends                  EmailSend[]
   signupSurvey                SignupSurvey?
@@ -670,6 +671,18 @@ model TrustedLinkSite {
 
   @@unique([userId, site])
   @@map("trusted_link_sites")
+}
+
+/// A deployment default MCP server (RAKAZO_DEFAULT_MCP_SERVERS) already added for one user.
+/// It stays after the person deletes the server, so a deliberate removal is not undone.
+model DefaultMcpServerOffer {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug      String
+  createdAt DateTime @default(now())
+
+  @@id([userId, slug])
+  @@map("default_mcp_server_offers")
 }
 
 model UserVoiceCredential {
