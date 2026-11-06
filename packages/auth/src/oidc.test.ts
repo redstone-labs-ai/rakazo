@@ -362,10 +362,12 @@ describe("OIDC callbacks", () => {
     expect(await (await request("/account-security")).json()).toMatchObject({ ssoLinked: true });
   });
   it("hands each sign-in the claims of the ID token it just stored", async () => {
-    const afterSignIn = vi.fn(async (_userId: string, _headers?: Headers) => {
-      // The account write lands before the hook runs, even for the sign-in that creates the user.
-      expect(rows("account").find((account) => account.providerId === "oidc")).toBeDefined();
-    });
+    const afterSignIn = vi.fn(
+      async (_userId: string, _headers?: Headers, _claims?: Record<string, unknown>) => {
+        // The account write lands before the hook runs, even for the sign-in that creates the user.
+        expect(rows("account").find((account) => account.providerId === "oidc")).toBeDefined();
+      },
+    );
     setup({ afterSignIn });
     const claims = { sub: "subject-1", email: "sso@example.test", email_verified: true };
     await signIn({ ...claims, roles: ["Investments"] });
