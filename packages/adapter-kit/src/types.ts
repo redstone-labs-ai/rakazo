@@ -954,6 +954,11 @@ export interface MessagingInboundMessage {
   senderIsBot?: boolean;
   /** Display names for room participants when the platform reports them. */
   participantNames?: string[];
+  /**
+   * The sender's account in the organization directory the platform signs in with, when the
+   * platform verified it. Lowercased.
+   */
+  directoryUser?: { tenantId: string; objectId: string };
 }
 
 /** An inbound file whose bytes are fetched with the platform's own credentials. */

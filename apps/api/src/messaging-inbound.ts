@@ -28,6 +28,7 @@ import type {
 import {
   createThreadMessage,
   crossSpaceCommunicationAllowed,
+  linkMessagingIdentityByDirectory,
   normalizeMessagingLinkCode,
   redeemMessagingLinkCode,
 } from "@rakazo/db";
@@ -60,6 +61,11 @@ export interface MessagingInboundDeps {
    * Off by default — strangers' runs would bill the deployment model key.
    */
   openSignup: boolean;
+  /**
+   * An unlinked sender whose directory account (`event.directoryUser`) matches a user's SSO
+   * sign-in is linked to that user's bot without a code. Off by default.
+   */
+  directoryLinking?: boolean;
   signupPolicy: SignupPolicyEnv;
   acknowledge?: MessagingReceipts["acknowledge"];
   /** Stores a platform file (Telegram photo, voice note, …) as a thread artifact. */
@@ -137,7 +143,14 @@ async function handleDirectEvent(
   const text = [event.content, event.mediaUrl].filter(Boolean).join("\n");
 
   const where = { provider_address: { provider: event.provider, address: event.from } } as const;
-  const existing = await deps.prisma.messagingIdentity.findUnique({ where });
+  let existing = await deps.prisma.messagingIdentity.findUnique({ where });
+  if (
+    !existing &&
+    deps.directoryLinking &&
+    event.directoryUser &&
+    (await linkByDirectory(deps, event))
+  )
+    existing = await deps.prisma.messagingIdentity.findUnique({ where });
   if (existing && event.installationSpaceId && existing.spaceId !== event.installationSpaceId)
     return;
   if (existing) {
@@ -534,6 +547,43 @@ async function tryRedeemLinkCode(
     },
   );
   if (!redeemed) return false;
+  await enqueueDeliverJob(deps);
+  return true;
+}
+
+/**
+ * Links an unlinked sender to the user their directory account belongs to, confirming as a
+ * link code does. The message that arrived is then handled as the linked user's.
+ */
+async function linkByDirectory(
+  deps: MessagingInboundDeps,
+  event: MessagingInboundMessage,
+): Promise<boolean> {
+  if (!event.directoryUser) return false;
+  const linked = await linkMessagingIdentityByDirectory(
+    deps.prisma,
+    {
+      provider: event.provider,
+      address: event.from,
+      dmThreadId: event.threadId,
+      directoryUser: event.directoryUser,
+      spaceId: event.installationSpaceId,
+      installationId: event.installationId,
+    },
+    async (tx, identity) => {
+      const bot = await tx.bot.findUnique({
+        where: { id: identity.botId },
+        select: { name: true },
+      });
+      await writeConfirmation(
+        tx,
+        { id: identity.identityId },
+        identity.confirmationKey,
+        `Linked. Messages here now reach "${bot?.name ?? "your agent"}".`,
+      );
+    },
+  );
+  if (!linked) return false;
   await enqueueDeliverJob(deps);
   return true;
 }

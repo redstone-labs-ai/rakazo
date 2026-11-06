@@ -243,6 +243,32 @@ describe("Teams platform", () => {
     expect(events[0]?.threadId.startsWith("teams:")).toBe(true);
   });
 
+  it("names the 1:1 sender's directory account, and no group sender's", async () => {
+    const from = { id: "29:ada", name: "Ada Lovelace", aadObjectId: "AAD-OBJECT-ADA" };
+    const tenant = TENANT.toUpperCase();
+    const direct = await deliver(activity({ conversation: personal, text: "hi", from, tenant }));
+    expect(direct.events[0]?.directoryUser).toEqual({
+      tenantId: TENANT,
+      objectId: "aad-object-ada",
+    });
+
+    const group = await deliver(
+      activity({
+        conversation: groupChat,
+        text: "<at>Rakazo</at> hi",
+        entities: [mentionEntity],
+        from,
+      }),
+    );
+    expect(group.events[0]).toBeDefined();
+    expect(group.events[0]?.directoryUser).toBeUndefined();
+
+    const guest = await deliver(
+      activity({ conversation: personal, text: "hi", from: { id: "29:guest", name: "Guest" } }),
+    );
+    expect(guest.events[0]?.directoryUser).toBeUndefined();
+  });
+
   it("turns a group chat @mention into a group event named after the chat", async () => {
     const { events } = await deliver(
       activity({

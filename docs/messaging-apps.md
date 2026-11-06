@@ -18,6 +18,11 @@ to group chats there.
 From then on, messages you send there go to that bot's chat, and its replies come back to you there.
 The conversation is the same one you see in the Rakazo app.
 
+A server that signs people in with Microsoft Entra can set `RAKAZO_TEAMS_AUTO_LINK=true`: the first
+direct message from someone who has signed in to the server with the same Microsoft account links
+Teams to their first bot that has no chat app yet, without a code, and the bot answers it. Anyone
+else links with a code as usual.
+
 In direct messages, a voice note the chat app delivers as an audio file (Telegram, for example)
 is transcribed when a voice provider that supports transcription is connected in **Voice**
 settings; without one, the bot receives the audio file.
