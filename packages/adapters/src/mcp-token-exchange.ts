@@ -4,8 +4,6 @@ import type { McpGrantIssuer } from "./mcp-oauth.js";
 
 const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
-/** Secrets are read only from variables with this prefix, so the list cannot send others. */
-export const MCP_TOKEN_EXCHANGE_SECRET_PREFIX = "RAKAZO_MCP_TOKEN_EXCHANGE_";
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_ATTEMPTS = 3;
 
@@ -21,80 +19,6 @@ export type McpTokenExchangeConfig = {
   /** A response field naming the person's role at the service, reported to `onRole`. */
   roleField?: string;
 };
-
-/**
- * RAKAZO_MCP_TOKEN_EXCHANGE: a JSON array of `{ issuer, tokenEndpoint, clientId,
- * clientSecretEnv, subjectScope, roleField? }`. Each client secret is read from the variable
- * `clientSecretEnv` names. An entry that does not parse is logged and left out.
- */
-export function mcpTokenExchangeFromEnv(
-  source: NodeJS.ProcessEnv,
-  warn: (message: string) => void = (message) => getLogger().warn(message),
-): McpTokenExchangeConfig[] {
-  const raw = source.RAKAZO_MCP_TOKEN_EXCHANGE?.trim();
-  if (!raw) return [];
-  let list: unknown;
-  try {
-    list = JSON.parse(raw);
-  } catch {
-    warn("Ignoring RAKAZO_MCP_TOKEN_EXCHANGE: not valid JSON");
-    return [];
-  }
-  if (!Array.isArray(list)) {
-    warn("Ignoring RAKAZO_MCP_TOKEN_EXCHANGE: expected a JSON array");
-    return [];
-  }
-  const configs: McpTokenExchangeConfig[] = [];
-  for (const [index, item] of list.entries()) {
-    const fields: Record<string, unknown> = item && typeof item === "object" ? item : {};
-    const text = (key: string) =>
-      typeof fields[key] === "string" && fields[key].trim() ? fields[key].trim() : undefined;
-    const skip = (reason: string) =>
-      warn(`Ignoring RAKAZO_MCP_TOKEN_EXCHANGE entry ${index}: ${reason}`);
-    const issuer = httpsUrl(text("issuer"));
-    const tokenEndpoint = httpsUrl(text("tokenEndpoint"));
-    const clientId = text("clientId");
-    const subjectScope = text("subjectScope");
-    const secretEnv = text("clientSecretEnv");
-    if (!issuer || !tokenEndpoint) {
-      skip("issuer and tokenEndpoint must be HTTPS URLs");
-      continue;
-    }
-    if (!clientId || !subjectScope || !secretEnv) {
-      skip("clientId, clientSecretEnv and subjectScope are required");
-      continue;
-    }
-    if (!secretEnv.startsWith(MCP_TOKEN_EXCHANGE_SECRET_PREFIX)) {
-      skip(`clientSecretEnv must start with ${MCP_TOKEN_EXCHANGE_SECRET_PREFIX}`);
-      continue;
-    }
-    const clientSecret = source[secretEnv]?.trim();
-    if (!clientSecret) {
-      skip(`${secretEnv} is not set`);
-      continue;
-    }
-    const roleField = text("roleField");
-    configs.push({
-      issuer,
-      tokenEndpoint,
-      clientId,
-      clientSecret,
-      subjectScope,
-      ...(roleField ? { roleField } : {}),
-    });
-  }
-  return configs;
-}
-
-function httpsUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /** Issuer URLs compared as resource metadata and configuration may spell them. */
 function sameIssuer(left: string, right: string): boolean {

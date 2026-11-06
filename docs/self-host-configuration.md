@@ -130,13 +130,13 @@ RAKAZO_DEFAULT_MCP_SERVERS='[{"slug":"docs","name":"Docs","transport":"streamabl
 the servers' authorization server trusts this deployment's SSO provider. After someone signs in
 with SSO, the API redeems their stored refresh token for an access token with `subjectScope`,
 exchanges it (RFC 8693) at `tokenEndpoint` for each server whose resource metadata names
-`issuer`, and stores the grant as if they had connected the server. A grant the authorization
-server refuses to refresh, or the MCP server refuses before it expires, is exchanged again before
-the person is asked to reconnect.
+`issuer`, and stores the grant as if they had connected the server. When the API finds such a
+grant refused (its refresh, or the token before it expires), it exchanges again before the person
+is asked to reconnect. Once an hour it also exchanges again for anyone whose grants are 23 hours
+old, or whose grant a worker dropped, so people who only use a chat app stay connected. The worker
+never holds the SSO credentials, so a grant refused during a run waits for that hour.
 
-Set it on the API and the worker. It needs SSO with `offline_access` in `OIDC_SCOPES`, and the
-worker needs `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` and `BETTER_AUTH_SECRET` too,
-to exchange again during runs. The value is a JSON array of `{ "issuer", "tokenEndpoint",
+Set it on the API. It needs SSO with `offline_access` in `OIDC_SCOPES`. The value is a JSON array of `{ "issuer", "tokenEndpoint",
 "clientId", "clientSecretEnv", "subjectScope", "roleField" }`. `clientSecretEnv` names the
 variable holding the client secret and must start with `RAKAZO_MCP_TOKEN_EXCHANGE_`. The secret
 is never stored with the grants. `roleField`, if set, names a response field holding the

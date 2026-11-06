@@ -179,6 +179,7 @@ import {
   connectIssuedAfterSignIn,
   createMcpTokenExchange,
   recordDirectoryIdentity,
+  renewIssuedMcpGrants,
   serviceRoles,
 } from "./mcp-token-exchange.js";
 import {
@@ -817,6 +818,15 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           (error) => getLogger().error("saved home retention failed", error),
         )
       : undefined;
+
+  const stopIssuedGrantRenewal = mcpTokenExchange
+    ? startHourlySweep(
+        async (signal) => {
+          await renewIssuedMcpGrants({ prisma, mcpOAuth }, signal);
+        },
+        (error) => getLogger().error("issued MCP grant renewal failed", error),
+      )
+    : undefined;
 
   const router = createRouter({
     speechSummary:
@@ -1553,6 +1563,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       await stopInstalledBridges?.();
       await stopReferralEmails?.();
       await stopHomeRetention?.();
+      await stopIssuedGrantRenewal?.();
       await reconciler?.stop();
       await oauthTokenUpgrade;
       await mcpArgsMove;
