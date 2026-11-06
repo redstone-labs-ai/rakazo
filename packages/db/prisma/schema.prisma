@@ -71,6 +71,8 @@ model User {
   callPushDevices             CallPushDevice[]
   trustedLinkSites            TrustedLinkSite[]
   defaultMcpServerOffers      DefaultMcpServerOffer[]
+  directoryIdentity           DirectoryIdentity?
+  serviceRoles                ServiceRole[]
   feedbackReports             FeedbackReport[]
   emailSends                  EmailSend[]
   signupSurvey                SignupSurvey?
@@ -683,6 +685,31 @@ model DefaultMcpServerOffer {
 
   @@id([userId, slug])
   @@map("default_mcp_server_offers")
+}
+
+/// The directory object a user's latest SSO sign-in named (the ID token's `tid` and `oid`
+/// claims), so a chat-app sender from the same directory can be recognised.
+model DirectoryIdentity {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId  String
+  objectId  String
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, objectId])
+  @@map("directory_identities")
+}
+
+/// The role a service reported for a user when it issued them a grant, by the service's issuer.
+model ServiceRole {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issuer    String
+  role      String
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, issuer])
+  @@map("service_roles")
 }
 
 model UserVoiceCredential {

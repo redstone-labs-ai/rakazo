@@ -109,6 +109,7 @@ export * from "./mcp-emulator.js";
 export * from "./mcp-oauth.js";
 export * from "./mcp-server-health.js";
 export * from "./mcp-server-tool.js";
+export * from "./mcp-token-exchange.js";
 export * from "./mcp-transport.js";
 export * from "./media-generation-factory.js";
 export * from "./media-generation-provider.js";

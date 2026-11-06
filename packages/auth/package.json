@@ -8,6 +8,11 @@
       "types": "./src/index.ts",
       "development": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./oidc-delegation": {
+      "types": "./src/oidc-delegation.ts",
+      "development": "./src/oidc-delegation.ts",
+      "default": "./src/oidc-delegation.ts"
     }
   },
   "scripts": {

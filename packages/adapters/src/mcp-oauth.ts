@@ -6,6 +6,7 @@ import type {
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   auth,
+  discoverAuthorizationServerMetadata,
   discoverOAuthProtectedResourceMetadata,
   refreshAuthorization,
 } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -285,6 +286,8 @@ type ProviderOptions = {
   onPersisted?: (record: { id: string; ref: string; material: OAuthMaterial }) => void;
   /** Renews the grant under the server's credential lock and returns the grant now stored. */
   refresh?: (heldRefreshToken: string) => Promise<TokenGrant>;
+  /** Replaces a grant the server refused with one the deployment issues, if it can. */
+  reissue?: (heldAccessToken: string) => Promise<TokenGrant | undefined>;
   /** The instance opt-in that lets OAuth URLs use plain HTTP on a private network. */
   allowPrivateEndpoint?: boolean;
 };
@@ -480,6 +483,16 @@ export class StoredMcpOAuthProvider implements OAuthClientProvider {
    */
   async replaceRejectedToken(): Promise<void> {
     const held = this.material.oauth?.tokens;
+    // A refresh would extend the grant the server just refused, so take a new one first.
+    if (held && this.options.reissue) {
+      const grant = await this.options.reissue(held.access_token).catch(() => undefined);
+      const oauth = this.material.oauth;
+      if (grant?.tokens && oauth && oauth.tokens === held) {
+        applyGrant(oauth, grant);
+        this.storedRefreshToken = grant.tokens.refresh_token ?? null;
+        if (grant.tokens.access_token !== held.access_token) return;
+      }
+    }
     await this.renew();
     const tokens = this.material.oauth?.tokens;
     if (tokens && tokens !== held) return;
@@ -869,13 +882,22 @@ async function requestRefresh(
   refreshToken: string,
   fetchFn: typeof fetch,
   allowPrivateEndpoint: boolean,
+  issuer?: McpGrantIssuer,
 ): Promise<OAuthTokens> {
   const discovery = material.oauth?.discoveryState;
-  const clientInformation = material.oauthClient
+  const stored = material.oauthClient
     ? boundClient(material.oauthClient, discovery?.authorizationServerUrl)
     : material.oauth?.clientInformation;
-  if (!discovery?.authorizationServerUrl || !clientInformation)
+  if (!discovery?.authorizationServerUrl || !stored)
     throw new Error("MCP OAuth state cannot refresh");
+  // A client the deployment holds keeps its secret out of the stored material.
+  const held = material.oauthClient
+    ? undefined
+    : issuer?.clientFor(discovery.authorizationServerUrl);
+  const clientInformation =
+    held && held.clientId === stored.client_id && !stored.client_secret
+      ? { ...stored, client_secret: held.clientSecret }
+      : stored;
   return refreshAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.authorizationServerMetadata,
     clientInformation,
@@ -919,6 +941,32 @@ function conflictsWithBinding(stored: PreRegisteredClient | undefined, flow: OAu
   return Boolean(bound && target && bound !== target);
 }
 
+/**
+ * Grants a deployment can issue for a person without their interaction, for authorization
+ * servers it holds a confidential client with (for example by exchanging their sign-in token).
+ */
+export interface McpGrantIssuer {
+  /** The client this deployment holds for the authorization server, if any. */
+  clientFor(
+    authorizationServerUrl: string,
+  ): { clientId: string; clientSecret: string; authMethod: "client_secret_post" } | undefined;
+  /** A new grant for the person at the resource, or undefined when none can be issued. */
+  issue(input: {
+    userId: string;
+    authorizationServerUrl: string;
+    resource?: string;
+  }): Promise<OAuthTokens | undefined>;
+}
+
+/** The deployment's client, when the stored grant was issued to it rather than to this server's own. */
+function issuedClient(material: OAuthMaterial, issuer: McpGrantIssuer | undefined) {
+  const server = material.oauth?.discoveryState?.authorizationServerUrl;
+  const clientId = material.oauth?.clientInformation?.client_id;
+  if (!issuer || !server || !clientId || material.oauthClient) return undefined;
+  const held = issuer.clientFor(server);
+  return held?.clientId === clientId ? held : undefined;
+}
+
 /** What the settings UI may know about a server's OAuth setup; never a credential. */
 export type McpOAuthSummary = {
   status: "none" | "connected" | "reconnect";
@@ -957,6 +1005,7 @@ export class McpOAuthBroker {
     private readonly secrets: SecretStore,
     private readonly network: RemoteTransportDependencies = {},
     private readonly allowPrivateEndpoint = false,
+    private readonly issuer?: McpGrantIssuer,
   ) {}
 
   async statusFor(server: ServerRef, context: ActorRef): Promise<McpOAuthSummary["status"]> {
@@ -1351,6 +1400,20 @@ export class McpOAuthBroker {
                 ),
             }
           : {}),
+        ...(issuedClient(loaded.material, this.issuer)
+          ? {
+              reissue: (heldAccessToken: string) =>
+                holdSecretNotifications(() =>
+                  this.reissueGrant(
+                    server.id,
+                    endpoint,
+                    context,
+                    heldAccessToken,
+                    options.onPersisted,
+                  ),
+                ),
+            }
+          : {}),
         allowPrivateEndpoint: this.allowPrivateEndpoint,
         ...options,
       },
@@ -1402,6 +1465,7 @@ export class McpOAuthBroker {
                     current,
                     network.fetch,
                     this.allowPrivateEndpoint,
+                    this.issuer,
                   ),
                 };
                 grant.obtainedAt = Date.now();
@@ -1409,7 +1473,8 @@ export class McpOAuthBroker {
                 // Under the lock `current` is the stored token, so a rejection
                 // means the grant is revoked, not rotated by another process.
                 if (!(error instanceof InvalidGrantError)) throw error;
-                grant = {};
+                // A grant the deployment issued is issued again before the person is asked.
+                grant = (await this.issueFor(material, context)) ?? {};
               }
               applyGrant(oauth, grant);
               if (grant.tokens) rotated = { material, grant, spent: current };
@@ -1451,6 +1516,163 @@ export class McpOAuthBroker {
     } finally {
       await network.close().catch(() => undefined);
     }
+  }
+
+  /** A grant from the deployment's issuer for the stored grant's server and resource. */
+  private async issueFor(
+    material: OAuthMaterial,
+    context: ActorRef,
+  ): Promise<TokenGrant | undefined> {
+    const discovery = material.oauth?.discoveryState;
+    if (!issuedClient(material, this.issuer) || !discovery) return undefined;
+    const tokens = await this.issuer!.issue({
+      userId: context.userId,
+      authorizationServerUrl: discovery.authorizationServerUrl,
+      resource: discovery.resourceMetadata?.resource,
+    }).catch((error: unknown) => {
+      getLogger().warn("MCP grant could not be issued again", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    });
+    return tokens
+      ? { tokens: { ...tokens, issuer: discovery.authorizationServerUrl }, obtainedAt: Date.now() }
+      : undefined;
+  }
+
+  /**
+   * The server refused an issued grant before it expired (its session ended, say), so a refresh
+   * would only extend it. Issue a new one under the credential lock, unless another process
+   * already replaced the refused token, and return the grant now stored.
+   */
+  private async reissueGrant(
+    serverId: string,
+    endpoint: string | null,
+    context: ActorRef,
+    heldAccessToken: string,
+    onPersisted?: ProviderOptions["onPersisted"],
+  ): Promise<TokenGrant | undefined> {
+    let stored: { id: string; ciphertext: string } | undefined;
+    try {
+      const result = await persistPreparedSecret(
+        this.prisma,
+        this.secrets,
+        undefined,
+        () =>
+          this.prisma.$transaction(
+            async (tx) => {
+              await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${REFRESH_LOCK_WAIT_MS}ms`}, true)`;
+              await lockMaterial(tx, serverId);
+              const snapshot = await this.snapshot(tx, serverId, context, endpoint);
+              const material = snapshot.secret
+                ? await this.read(snapshot.secret.ciphertext, snapshot.secret.id)
+                : {};
+              const oauth = material.oauth;
+              if (!oauth?.tokens) return {};
+              if (oauth.tokens.access_token !== heldAccessToken)
+                return { grant: { tokens: oauth.tokens, obtainedAt: oauth.obtainedAt } };
+              const grant = await this.issueFor(material, context);
+              if (!grant) return {};
+              applyGrant(oauth, grant);
+              stored = await this.putMaterial(material, context);
+              if (!(await this.commitMaterial(tx, serverId, context, snapshot, stored)))
+                throw new Error("MCP credentials changed while issuing a grant; retry");
+              return { grant, record: { id: stored.id, ref: stored.ciphertext, material } };
+            },
+            { maxWait: REFRESH_LOCK_WAIT_MS, timeout: REFRESH_TRANSACTION_MS },
+          ),
+        (result) => {
+          if (result.record) onPersisted?.(result.record);
+        },
+      );
+      return result.grant;
+    } catch (error) {
+      if (stored) await deleteSecretBestEffort(this.secrets, stored.ciphertext, stored.id);
+      throw error;
+    }
+  }
+
+  /**
+   * Connects a remote server with a grant the deployment issues, when the server's
+   * authorization server is one the issuer holds a client for. Returns whether it did. A
+   * server that is connected already, or uses a client of its own, is left alone.
+   */
+  async connectIssued(server: ServerRef, context: ActorRef): Promise<boolean> {
+    if (!this.issuer || !server.endpoint) return false;
+    const { material } = await this.loadMaterial(server, context);
+    if (material.oauth?.tokens || material.oauthClient) return false;
+    const network = oauthFetch(server.endpoint, this.network, {}, this.allowPrivateEndpoint);
+    try {
+      let resourceMetadata: Awaited<ReturnType<typeof discoverOAuthProtectedResourceMetadata>>;
+      try {
+        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+          new URL(server.endpoint),
+          undefined,
+          network.fetch,
+        );
+      } catch {
+        return false;
+      }
+      const authorizationServerUrl = resourceMetadata.authorization_servers?.[0];
+      const client = authorizationServerUrl && this.issuer.clientFor(authorizationServerUrl);
+      if (!authorizationServerUrl || !client) return false;
+      const resource = canonicalResource(resourceMetadata.resource, this.allowPrivateEndpoint);
+      const authorizationServerMetadata = await discoverAuthorizationServerMetadata(
+        authorizationServerUrl,
+        { fetchFn: network.fetch },
+      );
+      if (!authorizationServerMetadata?.token_endpoint) return false;
+      const tokens = await this.issuer.issue({
+        userId: context.userId,
+        authorizationServerUrl,
+        resource: resource ? resourceMetadata.resource : undefined,
+      });
+      if (!tokens) return false;
+      return await this.seedGrant(server, context, {
+        tokens,
+        clientId: client.clientId,
+        authMethod: client.authMethod,
+        discovery: { authorizationServerUrl, authorizationServerMetadata, resourceMetadata },
+      });
+    } finally {
+      await network.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Stores a grant obtained outside the interactive flow, with the discovery that later
+   * refreshes use, and rebuilds cached sessions. False when the server uses a client of its own.
+   */
+  async seedGrant(
+    server: ServerRef,
+    context: ActorRef,
+    grant: {
+      tokens: OAuthTokens;
+      clientId: string;
+      authMethod: "client_secret_post";
+      discovery: OAuthDiscoveryState;
+    },
+  ): Promise<boolean> {
+    const { material } = await this.loadMaterial(server, context);
+    if (material.oauthClient) return false;
+    const issuer = grant.discovery.authorizationServerUrl;
+    material.oauth = {
+      ...(material.oauth?.redirectUri ? { redirectUri: material.oauth.redirectUri } : {}),
+      tokens: { ...grant.tokens, issuer },
+      obtainedAt: Date.now(),
+      // The secret stays with the deployment; refresh takes it from the issuer.
+      clientInformation: {
+        client_id: grant.clientId,
+        token_endpoint_auth_method: grant.authMethod,
+        issuer,
+      },
+      discoveryState: grant.discovery,
+    };
+    await this.replaceMaterial(server.id, material, context, {
+      incrementRevision: true,
+      expectedEndpoint: server.endpoint,
+    });
+    return true;
   }
 
   private async replaceMaterial(

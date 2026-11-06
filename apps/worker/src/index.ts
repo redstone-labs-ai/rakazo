@@ -10,6 +10,7 @@ import { phoneCallSettings } from "@rakazo/core";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import { stopOnShutdownSignals } from "@rakazo/core/node/shutdown-signals";
 import { startWorkerHealth, watchEventLoopStalls } from "./health.js";
+import { workerMcpTokenExchange } from "./mcp-token-exchange.js";
 import { createWorkerSecretStore } from "./secret-store.js";
 
 loadRootEnv();
@@ -170,7 +171,13 @@ async function main() {
     secrets,
   });
   const allowPrivateEndpoint = process.env.MCP_ALLOW_PRIVATE_ENDPOINT === "true";
-  const mcpOAuth = new McpOAuthBroker(prisma, secrets, {}, allowPrivateEndpoint);
+  const mcpOAuth = new McpOAuthBroker(
+    prisma,
+    secrets,
+    {},
+    allowPrivateEndpoint,
+    workerMcpTokenExchange(prisma, process.env),
+  );
   const mcpStdio = {
     stdioEnabled: process.env.MCP_STDIO_ENABLED === "true",
     allowedCommands: (process.env.MCP_STDIO_ALLOWED_COMMANDS ?? "")
