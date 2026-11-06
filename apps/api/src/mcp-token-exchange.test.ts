@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { mcpTokenExchangeFromEnv, renewIssuedMcpGrants } from "./mcp-token-exchange.js";
+import {
+  connectIssuedAfterSignIn,
+  mcpTokenExchangeFromEnv,
+  renewIssuedMcpGrants,
+} from "./mcp-token-exchange.js";
 
 const entry = {
   issuer: "https://auth.example.test/api/auth",
@@ -102,5 +106,70 @@ describe("renewIssuedMcpGrants", () => {
     });
     expect(await renewIssuedMcpGrants(deps, undefined, now)).toBe(0);
     expect(mcpOAuth.renewIssued).not.toHaveBeenCalled();
+  });
+});
+
+describe("connectIssuedAfterSignIn", () => {
+  const row = (id: string) => ({
+    id,
+    userId: "ann",
+    spaceId: "space-ann",
+    endpoint: `https://${id}.example.test/mcp`,
+    secretId: `secret-${id}`,
+  });
+
+  it("checks each server it connected, after the grant is stored", async () => {
+    const order: string[] = [];
+    const prisma = {
+      mcpServer: {
+        findMany: vi.fn(async (args: { where: { id?: { in: string[] } } }) =>
+          args.where.id ? args.where.id.in.map(row) : [row("mb"), row("vendor")],
+        ),
+      },
+    };
+    const mcpOAuth = {
+      connectIssued: vi.fn(async (server: { id: string }) => {
+        order.push(`connect ${server.id}`);
+        return server.id === "mb";
+      }),
+    };
+    const probe = vi.fn(async (server: { id: string }) => {
+      order.push(`probe ${server.id}`);
+    });
+
+    const connected = await connectIssuedAfterSignIn(
+      { prisma, mcpOAuth, probe } as never,
+      "ann",
+      async () => [],
+    );
+
+    expect(connected).toEqual(["mb"]);
+    expect(order).toEqual(["connect mb", "connect vendor", "probe mb"]);
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({ id: "mb" }), {
+      spaceId: "space-ann",
+      userId: "ann",
+    });
+  });
+
+  it("keeps the connection when a check fails, and checks nothing when nothing connected", async () => {
+    const prisma = { mcpServer: { findMany: vi.fn(async () => [row("mb")]) } };
+    const failing = vi.fn(async () => {
+      throw new Error("down");
+    });
+    await expect(
+      connectIssuedAfterSignIn(
+        { prisma, mcpOAuth: { connectIssued: async () => true }, probe: failing } as never,
+        "ann",
+        async () => [],
+      ),
+    ).resolves.toEqual(["mb"]);
+
+    const unused = vi.fn();
+    await connectIssuedAfterSignIn(
+      { prisma, mcpOAuth: { connectIssued: async () => false }, probe: unused } as never,
+      "ann",
+      async () => [],
+    );
+    expect(unused).not.toHaveBeenCalled();
   });
 });

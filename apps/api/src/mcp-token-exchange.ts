@@ -2,7 +2,7 @@ import type { McpOAuthBroker, McpTokenExchangeConfig } from "@rakazo/adapters";
 import { McpTokenExchange } from "@rakazo/adapters";
 import type { OidcConfig } from "@rakazo/auth";
 import { createOidcDelegation } from "@rakazo/auth";
-import type { PrismaClient } from "@rakazo/db";
+import type { McpServer, PrismaClient } from "@rakazo/db";
 import { runAsSystem, runAsTenant } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
@@ -179,17 +179,50 @@ export async function connectIssuedMcpServers(
   return connected;
 }
 
+/** Checks a server and records its health; the MCP connector's `probe`. */
+export type McpServerProbe = (
+  server: McpServer,
+  context: { spaceId: string; userId: string },
+) => Promise<unknown>;
+
 /**
  * After a sign-in: connect what the exchange can, then add the default servers a role it just
- * reported admits, and connect those too.
+ * reported admits, and connect those too. Then check each server it connected, so its health
+ * shows the new grant instead of a check that ran before the grant arrived (the first run
+ * after sign-in often starts while the exchange is still under way). Returns the ids connected.
  */
 export async function connectIssuedAfterSignIn(
-  deps: { prisma: PrismaClient; mcpOAuth: McpOAuthBroker },
+  deps: { prisma: PrismaClient; mcpOAuth: McpOAuthBroker; probe?: McpServerProbe },
   userId: string,
   provisionDefaults: () => Promise<string[]>,
+): Promise<string[]> {
+  const connected = await connectIssuedMcpServers(deps, userId);
+  if ((await provisionDefaults()).length)
+    connected.push(...(await connectIssuedMcpServers(deps, userId)));
+  if (deps.probe && connected.length)
+    await probeMcpServers(deps.prisma, deps.probe, userId, connected);
+  return connected;
+}
+
+async function probeMcpServers(
+  prisma: PrismaClient,
+  probe: McpServerProbe,
+  userId: string,
+  ids: string[],
 ): Promise<void> {
-  await connectIssuedMcpServers(deps, userId);
-  if ((await provisionDefaults()).length) await connectIssuedMcpServers(deps, userId);
+  const servers = await runAsSystem("check MCP servers the token exchange connected", () =>
+    prisma.mcpServer.findMany({ where: { id: { in: ids }, userId } }),
+  );
+  for (const server of servers) {
+    const context = { spaceId: server.spaceId, userId };
+    // The probe records its own outcome; a failure here must not undo the connection.
+    await runAsTenant(context, () => probe(server, context)).catch((error: unknown) =>
+      getLogger().warn("MCP server not checked after token exchange", {
+        "mcp.server.id": server.id,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
 }
 
 /**
