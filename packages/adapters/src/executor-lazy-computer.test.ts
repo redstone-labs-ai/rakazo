@@ -1,6 +1,7 @@
 import type { AgentRunRequest, ComputerRef } from "@rakazo/adapter-kit";
 import { SandboxRateLimitError, SandboxUnresponsiveError } from "@rakazo/adapter-kit";
 import type { MessageBlock } from "@rakazo/contracts";
+import { normalizeRunError } from "@rakazo/core";
 import { createLogger, createTestSink, installLogger } from "@rakazo/logging";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ComputerLifecycleModule from "./computer-lifecycle.js";
@@ -667,7 +668,10 @@ describe("run computer provisioning", () => {
     );
 
     expect(finalizeRun).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ outcome: "failed", error: "provider unavailable" }),
+      expect.objectContaining({
+        outcome: "failed",
+        error: "The computer couldn't start: provider unavailable",
+      }),
     );
     expect(enqueue).not.toHaveBeenCalled();
     // Busy-computer and database waits between failures neither count nor reset the streak.
@@ -676,6 +680,27 @@ describe("run computer provisioning", () => {
         where: expect.objectContaining({ NOT: { status: "setup_failed", error: null } }),
       }),
     );
+  });
+
+  it("saves a computer that cannot start as a computer failure, not a model provider error", async () => {
+    // What @kubernetes/client-node throws when the worker's service account may not create pods.
+    const forbidden =
+      'HTTP-Code: 403\nMessage: Unknown API Status Code!\nBody: {"kind":"Status","status":"Failure","message":"pods is forbidden: User \\"system:serviceaccount:sandboxes:worker\\" cannot create resource \\"pods\\"","reason":"Forbidden","code":403}';
+    provisionComputer.mockRejectedValue(new Error(forbidden));
+
+    const { finalizeRun } = await runRoutine([{ name: "list_files", args: { path: "" } }], {
+      priorSetupFailures: 7,
+    });
+
+    const error = `The computer couldn't start: ${forbidden}`;
+    expect(finalizeRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: "failed", error }),
+    );
+    expect(normalizeRunError(error)).toMatchObject({
+      summary: "The computer couldn't start.",
+      kind: "computer",
+    });
+    expect(normalizeRunError(error)).not.toHaveProperty("recovery");
   });
 
   it.each([undefined, "abort", "recover"] as const)(

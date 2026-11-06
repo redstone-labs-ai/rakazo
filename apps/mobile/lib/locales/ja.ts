@@ -184,6 +184,7 @@ export const JA_MESSAGES: Record<string, string> = {
     "ボットを実行する前に、設定でモデルを接続してください。",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "モデルで自分のAPIキーを接続するか、請求でRakazoクレジットを選択してください。",
+  "The computer couldn't start.": "コンピューターを起動できませんでした。",
   "The model provider returned an error.": "モデルプロバイダーがエラーを返しました。",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider}がリクエストを制限しています。しばらくしてからもう一度お試しください。",

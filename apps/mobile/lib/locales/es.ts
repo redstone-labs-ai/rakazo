@@ -186,6 +186,7 @@ export const ES_MESSAGES: Record<string, string> = {
     "Conecta un modelo en Configuración antes de ejecutar bots.",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "Conecta tu propia clave de API en Modelos o elige créditos de Rakazo en Facturación.",
+  "The computer couldn't start.": "La computadora no pudo iniciarse.",
   "The model provider returned an error.": "El proveedor de modelos devolvió un error.",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider} está limitando las solicitudes. Vuelve a intentarlo en breve.",

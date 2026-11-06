@@ -11,6 +11,7 @@ import { disabledBuiltinToolSet } from "@rakazo/contracts";
 import {
   assertTransition,
   botMessageAllowsSilence,
+  computerStartRunError,
   expandSkillReferencesInPrompt,
   formatSkillRunPrompt,
   formatSkillsCatalogInstruction,
@@ -134,7 +135,7 @@ import { loadPurchaseRedactions } from "./purchase-service.js";
 import { loadReplyContext, messageToAgentHistoryText } from "./reply-context.js";
 import { backOffRoutineAfterAccountError } from "./routine-backoff.js";
 import { lateRoutineRunDueAt, lateRoutineRunInstruction } from "./routine-lateness.js";
-import { lazyRunComputer } from "./run-computer.js";
+import { isComputerStartFailure, lazyRunComputer } from "./run-computer.js";
 import type {
   RunComputerUseState,
   RunContext,
@@ -2038,7 +2039,14 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
         if (deps.shutdownSignal?.aborted) return;
         const computerBusy = setupError instanceof ComputerBusyError;
         const retryForever = computerBusy || isTooManyDatabaseConnections(setupError);
-        const setupMessage = redactSecrets(userRunError(setupError), runSecrets);
+        // A computer that did not start says so, with its provider's reason for the Details view,
+        // instead of reading like a model provider failure.
+        const setupMessage = redactSecrets(
+          isComputerStartFailure(setupError)
+            ? computerStartRunError(userRunError(setupError))
+            : userRunError(setupError),
+          runSecrets,
+        );
         const reportedSetupError = sanitizedError(setupError, (text) =>
           redactSecrets(text, runSecrets),
         );

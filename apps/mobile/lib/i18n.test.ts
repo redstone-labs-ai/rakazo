@@ -227,6 +227,7 @@ describe("mobile i18n", () => {
       "Your Anthropic",
       "Your model provider",
       "The model provider returned an error.",
+      "The computer couldn't start.",
       "Connect a model in Settings before running bots.",
       "Connect your own API key in Models or choose Rakazo credits in Billing.",
       "{provider} is rate limiting requests. Try again shortly.",

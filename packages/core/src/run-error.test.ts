@@ -2,6 +2,8 @@ import { COMPUTER_RATE_LIMIT_ERROR } from "@rakazo/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   APPROVED_ACTION_NOT_RUN_ERROR,
+  COMPUTER_START_ERROR,
+  computerStartRunError,
   HOSTED_MODEL_CREDITS_REQUIRED_ERROR,
   isImageInputConfirmation,
   isModelRequiredSendError,
@@ -640,6 +642,56 @@ it("does not expose malformed fallback metadata as user-facing copy", () => {
       }),
     ).summary,
   ).toBe("The model provider returned an error.");
+});
+
+describe("computer start failures", () => {
+  // Saved as the computer provider reported them; each read as a model provider failure before.
+  const forbidden =
+    'HTTP-Code: 403\nMessage: Unknown API Status Code!\nBody: {"kind":"Status","status":"Failure","message":"pods is forbidden: User \\"system:serviceaccount:sandboxes:worker\\" cannot create resource \\"pods\\"","reason":"Forbidden","code":403}';
+  const reasons = [
+    // An unreachable cluster API or an untrusted CA, as undici reports it.
+    "fetch failed",
+    forbidden,
+    '403: {"kind":"Status","status":"Failure","message":"pods is forbidden","reason":"Forbidden","code":403}',
+    "Kubernetes pod computer-1 did not become ready within 120000 ms",
+    "Kubernetes pod computer-1 entered phase Failed",
+    "Kubernetes exec failed",
+    "429: Too many sandboxes",
+  ];
+
+  it.each(reasons)("labels the computer, not the model provider: %s", (reason) => {
+    const details = computerStartRunError(reason);
+    expect(normalizeRunError(details)).toEqual({
+      summary: COMPUTER_START_ERROR,
+      details,
+      kind: "computer",
+    });
+  });
+
+  it("keeps the provider's reason for the Details view", () => {
+    const details = computerStartRunError(forbidden);
+    expect(details).toBe(`The computer couldn't start: ${forbidden}`);
+    expect(normalizeRunError(details).details).toContain("pods is forbidden");
+  });
+
+  it("does not repeat the prefix", () => {
+    expect(computerStartRunError(computerStartRunError("fetch failed"))).toBe(
+      "The computer couldn't start: fetch failed",
+    );
+  });
+
+  it("translates the summary", () => {
+    expect(
+      normalizeRunError(computerStartRunError("fetch failed"), (message) => `[${message}]`).summary,
+    ).toBe(`[${COMPUTER_START_ERROR}]`);
+  });
+
+  it("leaves the same reasons from a model provider labelled as the provider's", () => {
+    expect(normalizeRunError("fetch failed").summary).toBe(
+      "Your model provider took too long to respond. Try again.",
+    );
+    expect(normalizeRunError('403: {"message":"Policy blocked the request"}').kind).toBe("access");
+  });
 });
 
 describe("userRunError", () => {

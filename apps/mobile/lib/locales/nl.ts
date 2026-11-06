@@ -179,6 +179,7 @@ export const NL_MESSAGES: Record<string, string> = {
     "Verbind een model in Instellingen voordat je bots uitvoert.",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "Verbind je eigen API-sleutel bij Modellen of kies Rakazo-tegoed bij Facturatie.",
+  "The computer couldn't start.": "De computer kon niet opstarten.",
   "The model provider returned an error.": "De modelaanbieder heeft een fout teruggegeven.",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider} beperkt het aantal verzoeken. Probeer het zo nog eens.",

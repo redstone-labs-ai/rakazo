@@ -29,8 +29,9 @@ export const RunTriggerSchema = z.enum(RUN_TRIGGERS);
 export type RunTrigger = z.infer<typeof RunTriggerSchema>;
 
 /**
- * Whose problem a failed run is. Every kind except "output" is the user's provider account,
- * key, plan or model choice; "output" is a model that returned nothing usable.
+ * Whose problem a failed run is. Every kind except "output" and "computer" is the user's
+ * provider account, key, plan or model choice; "output" is a model that returned nothing usable,
+ * and "computer" is a computer that did not start.
  */
 export const RUN_ERROR_KINDS = [
   "key",
@@ -42,6 +43,7 @@ export const RUN_ERROR_KINDS = [
   "model",
   "context",
   "output",
+  "computer",
 ] as const;
 export type RunErrorKind = (typeof RUN_ERROR_KINDS)[number];
 

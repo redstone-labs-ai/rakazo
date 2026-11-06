@@ -1,5 +1,15 @@
 import type { ComputerRef } from "@rakazo/adapter-kit";
 
+const startFailures = new WeakSet<object>();
+
+/**
+ * Whether the error is a run computer's failed start, as the run's setup catches it after the
+ * turn rethrows it. Its message is the computer provider's, not the model's.
+ */
+export function isComputerStartFailure(error: unknown): boolean {
+  return typeof error === "object" && error !== null && startFailures.has(error);
+}
+
 /**
  * A run's computer, started the first time a tool needs it.
  *
@@ -21,6 +31,7 @@ export function lazyRunComputer(start: () => Promise<ComputerRef>, onFailure?: (
         (error: unknown) => {
           failed = true;
           failure = error;
+          if (typeof error === "object" && error !== null) startFailures.add(error);
           onFailure?.();
           throw error;
         },

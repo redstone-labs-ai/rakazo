@@ -6368,6 +6368,11 @@ msgstr "Bot może użyć pliku, ale nie zobaczy obrazu."
 msgid "The browser keeps dropping the microphone. Start dictation again to retry."
 msgstr "Przeglądarka ciągle traci dostęp do mikrofonu. Uruchom dyktowanie ponownie."
 
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "The computer couldn't start."
+msgstr "Komputer nie uruchomił się."
+
 #: src/lib/model-connection-preflight.ts
 msgid "The connection timed out."
 msgstr "Upłynął czas połączenia."

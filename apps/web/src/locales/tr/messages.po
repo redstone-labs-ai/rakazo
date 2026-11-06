@@ -6368,6 +6368,11 @@ msgstr "Bot dosyayı kullanabilir ama resmi göremez."
 msgid "The browser keeps dropping the microphone. Start dictation again to retry."
 msgstr "Tarayıcı mikrofonu sürekli bırakıyor. Tekrar denemek için dikteyi yeniden başlat."
 
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "The computer couldn't start."
+msgstr "Bilgisayar başlatılamadı."
+
 #: src/lib/model-connection-preflight.ts
 msgid "The connection timed out."
 msgstr "Bağlantı zaman aşımına uğradı."
