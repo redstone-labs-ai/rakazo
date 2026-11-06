@@ -176,6 +176,13 @@ import { mountLocalComputerHost } from "./local-settings.js";
 import { marketingEmailRoutes, sendWelcomeEmail } from "./marketing-email.js";
 import { moveMcpArgsIntoSecrets } from "./mcp-args-migration.js";
 import {
+  connectIssuedAfterSignIn,
+  createMcpTokenExchange,
+  recordDirectoryIdentity,
+  renewIssuedMcpGrants,
+  serviceRoles,
+} from "./mcp-token-exchange.js";
+import {
   createMessagingInboundHandler,
   teamChatSenderCanWakeMessageRoutines,
   wakeMessageRoutines,
@@ -415,11 +422,18 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       prisma,
       secrets,
     }));
+  const mcpTokenExchange = createMcpTokenExchange(
+    prisma,
+    env.mcpTokenExchange,
+    env.oidc,
+    env.authSecret,
+  );
   const mcpOAuth = new McpOAuthBroker(
     prisma,
     secrets,
     remoteConnectors,
     env.mcpAllowPrivateEndpoint,
+    mcpTokenExchange,
   );
   const memoryProviders = new SpaceMemoryProviderResolver(prisma, secrets);
   const oauthLogins = new PiOAuthLogins(undefined, { prisma, secrets });
@@ -581,11 +595,24 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           userId,
           headers,
         );
-      if (env.defaultMcpServers.length)
-        await provisionDefaultMcpServers({ prisma, secrets }, userId, env.defaultMcpServers, {
-          roles: [],
-          oidcRoles: oidcRolesClaim(oidcClaims),
-        }).catch((error) => getLogger().error("default MCP servers failed", error));
+      await recordDirectoryIdentity(prisma, userId, oidcClaims).catch((error) =>
+        getLogger().error("directory identity not recorded", error),
+      );
+      const provisionDefaults = async () =>
+        env.defaultMcpServers.length
+          ? provisionDefaultMcpServers({ prisma, secrets }, userId, env.defaultMcpServers, {
+              roles: await serviceRoles(prisma, userId),
+              oidcRoles: oidcRolesClaim(oidcClaims),
+            })
+          : [];
+      await provisionDefaults().catch((error) =>
+        getLogger().error("default MCP servers failed", error),
+      );
+      // Network-bound, so sign-in does not wait for it.
+      if (mcpTokenExchange)
+        void connectIssuedAfterSignIn({ prisma, mcpOAuth }, userId, provisionDefaults).catch(
+          (error) => getLogger().error("MCP token exchange after sign-in failed", error),
+        );
     },
     extraOrigins: MOBILE_AUTH_ORIGINS,
     androidAppCertFingerprints: env.passkeyAndroidCertFingerprints,
@@ -791,6 +818,15 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           (error) => getLogger().error("saved home retention failed", error),
         )
       : undefined;
+
+  const stopIssuedGrantRenewal = mcpTokenExchange
+    ? startHourlySweep(
+        async (signal) => {
+          await renewIssuedMcpGrants({ prisma, mcpOAuth }, signal);
+        },
+        (error) => getLogger().error("issued MCP grant renewal failed", error),
+      )
+    : undefined;
 
   const router = createRouter({
     speechSummary:
@@ -1526,6 +1562,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       await stopInstalledBridges?.();
       await stopReferralEmails?.();
       await stopHomeRetention?.();
+      await stopIssuedGrantRenewal?.();
       await reconciler?.stop();
       await oauthTokenUpgrade;
       await mcpArgsMove;
