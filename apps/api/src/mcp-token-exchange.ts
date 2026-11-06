@@ -45,18 +45,19 @@ export async function serviceRoles(prisma: PrismaClient, userId: string): Promis
 }
 
 /**
- * Records the directory object the sign-in's ID token names (`tid` and `oid`). The newest
- * sign-in owns it, so it never names two users.
+ * Records the directory object the sign-in's ID token names (`tid` and `oid`, lowercased).
+ * The newest sign-in owns it, so it never names two users.
  */
 export async function recordDirectoryIdentity(
   prisma: PrismaClient,
   userId: string,
   claims: Record<string, unknown> | undefined,
 ): Promise<void> {
-  const tenantId = claims?.tid;
-  const objectId = claims?.oid;
-  if (typeof tenantId !== "string" || !tenantId || typeof objectId !== "string" || !objectId)
-    return;
+  if (typeof claims?.tid !== "string" || typeof claims.oid !== "string") return;
+  // Directory ids are GUIDs, which chat apps may report in either case.
+  const tenantId = claims.tid.toLowerCase();
+  const objectId = claims.oid.toLowerCase();
+  if (!tenantId || !objectId) return;
   await prisma.$transaction(async (tx) => {
     await tx.directoryIdentity.deleteMany({
       where: { tenantId, objectId, userId: { not: userId } },

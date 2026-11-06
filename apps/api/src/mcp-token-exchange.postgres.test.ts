@@ -36,7 +36,10 @@ dbTests("directory identity and service roles", () => {
     const [first, second] = [await newUser(), await newUser()];
     const objectId = randomUUID();
     await recordDirectoryIdentity(db.prisma, first, { tid: "tenant", oid: objectId });
-    await recordDirectoryIdentity(db.prisma, second, { tid: "tenant", oid: objectId });
+    await recordDirectoryIdentity(db.prisma, second, {
+      tid: "Tenant",
+      oid: objectId.toUpperCase(),
+    });
     expect(await prisma.directoryIdentity.findMany({ where: { objectId } })).toEqual([
       expect.objectContaining({ userId: second, tenantId: "tenant" }),
     ]);
