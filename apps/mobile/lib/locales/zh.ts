@@ -168,6 +168,7 @@ export const ZH_MESSAGES: Record<string, string> = {
   "Connect a model in Settings before running bots.": "运行机器人前，请先在设置中连接模型。",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "请在“模型”中连接你自己的 API 密钥，或在“账单”中选择 Rakazo 额度。",
+  "The computer couldn't start.": "电脑无法启动。",
   "The model provider returned an error.": "模型提供商返回了错误。",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider}正在限制请求频率。请稍后重试。",

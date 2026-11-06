@@ -177,6 +177,7 @@ export const PL_MESSAGES: Record<string, string> = {
     "Przed uruchomieniem botów połącz model w Ustawieniach.",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "Połącz własny klucz API w Modelach lub wybierz środki Rakazo w Rozliczeniach.",
+  "The computer couldn't start.": "Komputer nie uruchomił się.",
   "The model provider returned an error.": "Dostawca modelu zwrócił błąd.",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider} ogranicza liczbę żądań. Spróbuj ponownie za chwilę.",

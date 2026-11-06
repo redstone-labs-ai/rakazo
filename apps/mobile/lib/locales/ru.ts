@@ -178,6 +178,7 @@ export const RU_MESSAGES: Record<string, string> = {
     "Подключите модель в настройках, прежде чем запускать ботов.",
   "Connect your own API key in Models or choose Rakazo credits in Billing.":
     "Подключите свой API-ключ в разделе «Модели» или выберите кредиты Rakazo в разделе «Оплата».",
+  "The computer couldn't start.": "Не удалось запустить компьютер.",
   "The model provider returned an error.": "Поставщик моделей вернул ошибку.",
   "{provider} is rate limiting requests. Try again shortly.":
     "{provider} ограничивает частоту запросов. Повторите попытку чуть позже.",

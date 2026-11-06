@@ -39,6 +39,22 @@ export const HOSTED_MODEL_CREDITS_REQUIRED_ERROR =
 /** A run in a billing organization without a paid plan, credits, or free period. */
 export const MODEL_ACCESS_REQUIRED_RUN_ERROR = "Subscribe in Billing to keep running bots.";
 
+/** What the user sees when the run's computer did not start, whatever the provider said. */
+export const COMPUTER_START_ERROR = "The computer couldn't start.";
+
+const COMPUTER_START_ERROR_PREFIX = "The computer couldn't start: ";
+
+/**
+ * The run error saved when the computer did not start. The computer provider's reason (a
+ * refused cluster request, a pod that never became ready, an unreachable API) follows the
+ * prefix, so the Details view keeps it for whoever runs the deployment.
+ */
+export function computerStartRunError(reason: string): string {
+  return reason.startsWith(COMPUTER_START_ERROR_PREFIX)
+    ? reason
+    : `${COMPUTER_START_ERROR_PREFIX}${reason}`;
+}
+
 /** The API rejects a send with this message until the user can reach a model. */
 export const MODEL_REQUIRED_SEND_ERROR = "Connect a model to start a run.";
 
@@ -236,6 +252,10 @@ export function normalizeRunError(
       recovery: "model",
       kind: "model",
     };
+  }
+  // The computer's own diagnostics can name a status or a timeout that is not the model's.
+  if (trimmed.startsWith(COMPUTER_START_ERROR_PREFIX)) {
+    return { summary: translate(COMPUTER_START_ERROR), details, kind: "computer" };
   }
   // "429: {...}", "429 {...}", or the model runtime's "<provider> API error (429): {...}".
   const prefix = trimmed.match(

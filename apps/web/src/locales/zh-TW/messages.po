@@ -6369,6 +6369,11 @@ msgstr "機器人可以使用這個檔案，但看不到圖片內容。"
 msgid "The browser keeps dropping the microphone. Start dictation again to retry."
 msgstr ""
 
+#. js-lingui-explicit-id
+#: src/lib/run-error.ts
+msgid "The computer couldn't start."
+msgstr "電腦無法啟動。"
+
 #: src/lib/model-connection-preflight.ts
 msgid "The connection timed out."
 msgstr "連線超時。"
