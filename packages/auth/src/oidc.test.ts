@@ -361,6 +361,20 @@ describe("OIDC callbacks", () => {
     expect(await openIdToken(secret, String(stored().idToken))).toMatch(/^ey/);
     expect(await (await request("/account-security")).json()).toMatchObject({ ssoLinked: true });
   });
+  it("hands each sign-in the claims of the ID token it just stored", async () => {
+    const afterSignIn = vi.fn(async (_userId: string, _headers?: Headers) => {
+      // The account write lands before the hook runs, even for the sign-in that creates the user.
+      expect(rows("account").find((account) => account.providerId === "oidc")).toBeDefined();
+    });
+    setup({ afterSignIn });
+    const claims = { sub: "subject-1", email: "sso@example.test", email_verified: true };
+    await signIn({ ...claims, roles: ["Investments"] });
+    expect(afterSignIn).toHaveBeenCalledTimes(1);
+    expect(afterSignIn.mock.calls[0]?.[2]).toMatchObject({ iss: issuer, roles: ["Investments"] });
+    cookies = "";
+    await signIn({ ...claims, roles: ["Accounting"] });
+    expect(afterSignIn.mock.calls[1]?.[2]).toMatchObject({ roles: ["Accounting"] });
+  });
   it("keeps accounts stored before token encryption working, then encrypts them", async () => {
     setup();
     await signIn();

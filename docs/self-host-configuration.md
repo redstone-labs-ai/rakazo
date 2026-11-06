@@ -105,6 +105,24 @@ A value that does not parse is logged and ignored.
 RAKAZO_DEFAULT_ROUTINES='[{"name":"Morning brief","prompt":"Summarize my day.","crons":["0 8 * * 1-5"]}]'
 ```
 
+## Default MCP servers
+
+`RAKAZO_DEFAULT_MCP_SERVERS` gives people MCP servers when they sign in, so they only have to
+connect them. Set it on the API. Each server is added once per person, available in all their
+spaces; one they delete is not added again. A server with an `audience` is added once the person
+holds one of its roles: `oidcRoles` are matched against the `roles` claim of their SSO ID token.
+A list that does not parse, or an entry in it, is logged and ignored.
+
+The value is a JSON array, or an object with a `servers` array. Each entry has `slug`, `name`,
+`endpoint` and `transport` (`streamable_http` or `sse`), and optionally `description`,
+`oauthClient` (`clientId`, `scope`, `authorizationParams`; never a secret, which every person's
+copy would hold), `shareWithAllBots` (default `true`), `enabled` (`false` leaves the entry out)
+and `audience` (`roles`, `oidcRoles`).
+
+```sh
+RAKAZO_DEFAULT_MCP_SERVERS='[{"slug":"docs","name":"Docs","transport":"streamable_http","endpoint":"https://mcp.example.com/mcp"},{"slug":"deals","name":"Deals","transport":"streamable_http","endpoint":"https://deals.example.com/mcp","audience":{"oidcRoles":["Investments"]}}]'
+```
+
 ## Database roles
 
 Rakazo uses two Postgres logins:

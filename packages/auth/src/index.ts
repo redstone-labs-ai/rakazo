@@ -39,7 +39,7 @@ import type { EmailLocaleOf } from "./email.js";
 import { emailLocale, passwordResetEmail, signInCodeEmail, verificationEmail } from "./email.js";
 import { hasRecentIdentityConfirmation, identityConfirmation } from "./identity-confirmation.js";
 import type { OidcConfig } from "./oidc.js";
-import { isCurrentOidcAccount, oidcDiscovery } from "./oidc.js";
+import { isCurrentOidcAccount, oidcDiscovery, storedOidcClaims } from "./oidc.js";
 import { passkeyRelyingParty } from "./passkey.js";
 import type { TokenKey } from "./token-storage.js";
 import { encryptStoredOAuthTokens, openIdToken, sealIdToken } from "./token-storage.js";
@@ -89,11 +89,19 @@ export interface AuthEnv {
   afterDeleteSession?: (session: AuthSession) => Promise<void>;
   /** Runs when a password change replaces the caller's own session instead of ending it. */
   afterReplaceSession?: (previous: AuthSession, session: AuthSession) => Promise<void>;
-  /** Runs after each sign-in, with the headers of the request that signed in. */
-  afterSignIn?: (userId: string, headers?: Headers) => Promise<void>;
+  /**
+   * Runs after each sign-in, with the headers of the request that signed in and the claims of
+   * the ID token from the user's latest SSO sign-in, if they have one.
+   */
+  afterSignIn?: (
+    userId: string,
+    headers?: Headers,
+    oidcClaims?: Record<string, unknown>,
+  ) => Promise<void>;
 }
 
 type AuthSession = { id: string; userId: string };
+type OidcAccount = { providerId: string; accountId: string; idToken?: string | null };
 
 const SEND_SIGN_IN_CODE_PATH = "/email-otp/send-verification-otp";
 const CODE_SIGN_IN_PATH = "/sign-in/email-otp";
@@ -215,6 +223,19 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
   // Better Auth's own token key, so every stored token shares one cipher and key.
   let authContext: Promise<{ secretConfig: TokenKey }> | undefined;
   const tokenKey = async () => (await authContext!).secretConfig;
+  /** The claims of the ID token the user's SSO account last signed in with. */
+  const oidcClaims = async (
+    adapter: { findAccounts(userId: string): Promise<OidcAccount[]> },
+    userId: string,
+  ) => {
+    if (!env.oidc) return undefined;
+    const key = await tokenKey();
+    for (const account of await adapter.findAccounts(userId)) {
+      const claims = await storedOidcClaims(account, env.oidc.issuer, key);
+      if (claims) return claims;
+    }
+    return undefined;
+  };
   const auth = betterAuth({
     appName: "Rakazo",
     logger: env.logger,
@@ -646,7 +667,12 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
             }
           },
           after: async (session, ctx) => {
-            await env.afterSignIn?.(session.userId, ctx?.headers);
+            if (env.afterSignIn)
+              await env.afterSignIn(
+                session.userId,
+                ctx?.headers,
+                await oidcClaims((await auth.$context).internalAdapter, session.userId),
+              );
             env.analytics?.capture(
               session.userId,
               { name: "signed_in" },
