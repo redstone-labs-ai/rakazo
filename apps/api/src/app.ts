@@ -610,9 +610,11 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       );
       // Network-bound, so sign-in does not wait for it.
       if (mcpTokenExchange)
-        void connectIssuedAfterSignIn({ prisma, mcpOAuth }, userId, provisionDefaults).catch(
-          (error) => getLogger().error("MCP token exchange after sign-in failed", error),
-        );
+        void connectIssuedAfterSignIn(
+          { prisma, mcpOAuth, probe: (server, context) => mcp.probe(server, context) },
+          userId,
+          provisionDefaults,
+        ).catch((error) => getLogger().error("MCP token exchange after sign-in failed", error));
     },
     extraOrigins: MOBILE_AUTH_ORIGINS,
     androidAppCertFingerprints: env.passkeyAndroidCertFingerprints,
