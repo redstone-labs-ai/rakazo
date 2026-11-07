@@ -589,6 +589,12 @@ export interface MessagingSurface {
     context: AdapterContext,
   ): Promise<MessagingInboundMessage[]>;
   /**
+   * Sender addresses of everyone in a group conversation except this deployment's own bot,
+   * read from the platform's member list and cached briefly. Null when the platform keeps no
+   * member list. Throws when the list cannot be read.
+   */
+  conversationMembers?(threadId: string, context: AdapterContext): Promise<string[] | null>;
+  /**
    * Start eagerly. Adapters that pull updates themselves (Telegram polling when no public
    * webhook URL is reachable) otherwise never start until a webhook or send touches them.
    */

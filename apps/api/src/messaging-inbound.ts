@@ -832,6 +832,16 @@ async function handleChannelEvent(
     return;
   }
 
+  // The platform keeps a member list but it could not be read: nobody's membership is
+  // confirmed, so nothing is discovered, swept or delivered for this message.
+  if (event.participantsUnavailable) {
+    getLogger().warn("messaging group message dropped: member list unavailable", {
+      provider: event.provider,
+      channelId: channel.id,
+    });
+    return;
+  }
+
   const participants = [...event.participants];
   if (!participants.includes(event.from)) participants.push(event.from);
 

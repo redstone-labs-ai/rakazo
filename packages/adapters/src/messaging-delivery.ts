@@ -266,12 +266,15 @@ async function mirrorChannelRun(
   );
 
   const hop = nextBotMessageHop(channelBlock.hop);
+  const members = await currentMembers(deps, channel);
+  if (members === "unavailable") return;
   const peers = await deps.prisma.messagingChannelMember.findMany({
     where: {
       channelId: channel.id,
       status: "approved",
       identityId: { not: null },
       NOT: { identityId: identity.id },
+      ...(members ? { address: { in: members } } : {}),
     },
   });
   // Peer bots belong to other members, usually in other Spaces.
@@ -279,6 +282,36 @@ async function mirrorChannelRun(
     fanOutToPeers(deps, { identity, channel, channelBlock, fromLabel, hop, peers, messages }),
   );
 }
+
+/**
+ * Who is in the group right now, for platforms that keep a member list, so a member who left
+ * since the last inbound message gets nothing more. Null when the platform keeps none;
+ * "unavailable" when the list could not be read, and then no peer is confirmed.
+ */
+async function currentMembers(
+  deps: MessagingDeliveryDeps,
+  channel: { id: string; threadId: string },
+): Promise<string[] | null | "unavailable"> {
+  if (!deps.messaging.conversationMembers) return null;
+  try {
+    return await deps.messaging.conversationMembers(channel.threadId, {
+      operationId: "messaging.members",
+      traceId: `messaging.members:${channel.id}`,
+      spaceId: "",
+      userId: "",
+      signal: AbortSignal.timeout(MEMBER_LIST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    getLogger().warn("messaging group peers skipped: member list unavailable", {
+      channelId: channel.id,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return "unavailable";
+  }
+}
+
+/** How long a reply's peer fan-out waits for the group's member list. */
+const MEMBER_LIST_TIMEOUT_MS = 15_000;
 
 async function fanOutToPeers(
   deps: MessagingDeliveryDeps,
