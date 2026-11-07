@@ -386,6 +386,86 @@ export async function linkMessagingIdentityByDirectory(
   }
 }
 
+type MessagingIdentityOwner = { userId: string; spaceId: string; installationId: string | null };
+
+/**
+ * The bots a chat identity may reach: its owner's live bots in Spaces they belong to. A
+ * workspace install delivers DMs only into its own space, so its identities stay there.
+ */
+function messagingIdentityBotsWhere(
+  identity: MessagingIdentityOwner,
+  spaceId?: string,
+): Prisma.BotWhereInput {
+  const inSpace = spaceId ?? (identity.installationId ? identity.spaceId : undefined);
+  return {
+    userId: identity.userId,
+    archivedAt: null,
+    space: { memberships: { some: { userId: identity.userId } } },
+    ...(inSpace ? { spaceId: inSpace } : {}),
+  };
+}
+
+/** Every bot `setMessagingIdentityBot` would accept for this identity, oldest first. */
+export function listMessagingIdentityBots(prisma: PrismaClient, identity: MessagingIdentityOwner) {
+  return prisma.bot.findMany({
+    where: messagingIdentityBotsWhere(identity),
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, space: { select: { name: true } } },
+  });
+}
+
+export type MessagingIdentityBotChange =
+  | {
+      ok: true;
+      identity: { id: string; provider: string; address: string; botId: string };
+      bot: { id: string; name: string };
+    }
+  | {
+      ok: false;
+      reason: "identity_not_found" | "bot_not_found" | "installation_space" | "bot_linked";
+    };
+
+/**
+ * Point the owner's chat identity at another of their bots. The identity follows the bot's
+ * space: runs resolve credentials, memory, and approval rules from run.spaceId. `spaceId`
+ * limits the choice to one space; `confirm` writes in the same transaction as the switch.
+ */
+export async function setMessagingIdentityBot(
+  prisma: PrismaClient,
+  request: { identityId: string; userId: string; botId: string; spaceId?: string },
+  confirm?: (
+    tx: Prisma.TransactionClient,
+    changed: Extract<MessagingIdentityBotChange, { ok: true }>,
+  ) => Promise<void>,
+): Promise<MessagingIdentityBotChange> {
+  const identity = await prisma.messagingIdentity.findFirst({
+    where: { id: request.identityId, userId: request.userId },
+  });
+  if (!identity) return { ok: false, reason: "identity_not_found" };
+  if (identity.installationId && request.spaceId && request.spaceId !== identity.spaceId)
+    return { ok: false, reason: "installation_space" };
+  const bot = await prisma.bot.findFirst({
+    where: { id: request.botId, ...messagingIdentityBotsWhere(identity, request.spaceId) },
+    select: { id: true, name: true, spaceId: true },
+  });
+  if (!bot) return { ok: false, reason: "bot_not_found" };
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const updated = await tx.messagingIdentity.update({
+        where: { id: identity.id },
+        data: { botId: bot.id, spaceId: bot.spaceId },
+      });
+      const changed = { ok: true as const, identity: updated, bot };
+      await confirm?.(tx, changed);
+      return changed;
+    });
+  } catch (error) {
+    // botId is unique: one chat app per bot, so the target bot is linked elsewhere.
+    if (isUniqueViolationError(error)) return { ok: false, reason: "bot_linked" };
+    throw error;
+  }
+}
+
 function isUniqueViolationError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }

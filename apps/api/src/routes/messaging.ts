@@ -7,10 +7,10 @@ import {
   formatMessagingLinkCode,
   issueMessagingLinkCode,
   runAsSystem,
+  setMessagingIdentityBot,
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import type { RouterContext } from "./context.js";
-import { isUniqueViolation } from "./shared.js";
 
 export function messagingRoutes(ctx: RouterContext) {
   const { deps, authed } = ctx;
@@ -104,48 +104,27 @@ export function messagingRoutes(ctx: RouterContext) {
       },
       identities: {
         setBot: authed.messaging.identities.setBot.handler(async ({ context, input }) => {
-          const identity = await acrossChatIdentities(() =>
-            deps.prisma.messagingIdentity.findFirst({
-              where: { id: input.identityId, userId: context.actor.userId },
+          // The picker shows the open space's bots, so the choice stays in that space.
+          const changed = await acrossChatIdentities(() =>
+            setMessagingIdentityBot(deps.prisma, {
+              identityId: input.identityId,
+              userId: context.actor.userId,
+              botId: input.botId,
+              spaceId: context.actor.spaceId,
             }),
           );
-          if (!identity) throw new ORPCError("NOT_FOUND");
-          // A workspace install delivers DMs only into its own space, so moving
-          // the link elsewhere would silently drop them.
-          if (identity.installationId && identity.spaceId !== context.actor.spaceId) {
+          if (changed.ok) return messagingIdentityDto(deps.prisma, changed.identity);
+          if (changed.reason === "installation_space") {
             throw new ORPCError("BAD_REQUEST", {
               message: "Pick a bot in the space this Slack workspace is connected to.",
             });
           }
-          const bot = await deps.prisma.bot.findFirst({
-            where: {
-              id: input.botId,
-              spaceId: context.actor.spaceId,
-              userId: context.actor.userId,
-              archivedAt: null,
-            },
-            select: { id: true },
-          });
-          if (!bot) throw new ORPCError("NOT_FOUND");
-          try {
-            const updated = await acrossChatIdentities(() =>
-              deps.prisma.messagingIdentity.update({
-                where: { id: identity.id },
-                // The identity must live in the bot's space: runs resolve
-                // credentials, memory, and approval rules from run.spaceId.
-                data: { botId: bot.id, spaceId: context.actor.spaceId },
-              }),
-            );
-            return messagingIdentityDto(deps.prisma, updated);
-          } catch (error) {
-            // botId is unique: the target bot is already linked elsewhere.
-            if (isUniqueViolation(error)) {
-              throw new ORPCError("BAD_REQUEST", {
-                message: "That bot is already linked to a chat app.",
-              });
-            }
-            throw error;
+          if (changed.reason === "bot_linked") {
+            throw new ORPCError("BAD_REQUEST", {
+              message: "That bot is already linked to a chat app.",
+            });
           }
+          throw new ORPCError("NOT_FOUND");
         }),
         unlink: authed.messaging.identities.unlink.handler(async ({ context, input }) => {
           const { count } = await acrossChatIdentities(() =>

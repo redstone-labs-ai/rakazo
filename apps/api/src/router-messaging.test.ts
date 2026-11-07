@@ -197,7 +197,7 @@ function messagingDeps(
         name: where.id === "bot-9" ? "Helper" : "Assistant",
       })),
       findFirst: vi.fn(async ({ where }: { where: { id: string } }) =>
-        where.id.startsWith("bot-") ? { id: where.id } : null,
+        where.id.startsWith("bot-") ? { id: where.id, name: "Assistant", spaceId: "ws-1" } : null,
       ),
     },
     messagingLinkCode: {
@@ -391,6 +391,38 @@ describe("messaging.identities", () => {
         botName: "Assistant",
       },
     });
+  });
+
+  it("re-points within the open space and moves the identity with the bot", async () => {
+    const { handler, actor, prisma } = messagingDeps();
+    await call(handler, actor, "messaging/identities/setBot", {
+      identityId: "mi-1",
+      botId: "bot-2",
+    });
+    expect(prisma.messagingIdentity.findFirst).toHaveBeenCalledWith({
+      where: { id: "mi-1", userId: "user-1" },
+    });
+    expect(prisma.bot.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "bot-2", userId: "user-1", spaceId: "ws-1" }),
+      }),
+    );
+    expect(prisma.messagingIdentity.update).toHaveBeenCalledWith({
+      where: { id: "mi-1" },
+      data: { botId: "bot-2", spaceId: "ws-1" },
+    });
+  });
+
+  it("refuses a bot that is already linked to a chat app", async () => {
+    const { handler, actor, prisma } = messagingDeps();
+    vi.mocked(prisma.messagingIdentity.update).mockRejectedValueOnce(
+      Object.assign(new Error("Unique constraint failed on botId"), { code: "P2002" }),
+    );
+    const response = await call(handler, actor, "messaging/identities/setBot", {
+      identityId: "mi-1",
+      botId: "bot-2",
+    });
+    expect(response.status).toBe(400);
   });
 
   it("keeps a workspace-installed identity in its installation's space", async () => {

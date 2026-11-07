@@ -8,11 +8,12 @@ import { messagingDeliverJob, runContinueJob } from "@rakazo/adapter-kit";
 import { insertGroupOutboundRows } from "@rakazo/adapters";
 import type { MessageBlock } from "@rakazo/contracts";
 import { ATTACHMENT_MAX_COUNT, isAttachmentAudioMimeType } from "@rakazo/contracts";
-import type { MessagingCommand } from "@rakazo/core";
+import type { BotChoiceCommand, MessagingCommand } from "@rakazo/core";
 import {
   displayName,
   messageBlockForArtifact,
   normalizeVoiceTranscript,
+  parseBotChoiceCommand,
   parseMessagingCommand,
   promptTextForAttachments,
   sanitizeMessagingLabel,
@@ -29,8 +30,10 @@ import {
   createThreadMessage,
   crossSpaceCommunicationAllowed,
   linkMessagingIdentityByDirectory,
+  listMessagingIdentityBots,
   normalizeMessagingLinkCode,
   redeemMessagingLinkCode,
+  setMessagingIdentityBot,
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import type { MessagingReceipts } from "./messaging-receipts.js";
@@ -118,7 +121,7 @@ type IdentityRow = {
 
 /**
  * Inbound routing. 1:1 messages are messages to the sender's own bot (with
- * provisioning on first contact and the YES/NO/LEAVE/STOP owner commands).
+ * provisioning on first contact and the YES/NO/LEAVE/STOP and /use owner commands).
  * Group messages drive channel discovery — upsert channel + members, DM
  * invites to linked owners, one intro when strangers are present — and
  * fan out to every approved member bot's own thread.
@@ -171,6 +174,11 @@ async function handleDirectEvent(
         return;
       }
     } else if (command && (await applyOwnerCommand(deps, existing, command))) return;
+    const choice = parseBotChoiceCommand(event.content);
+    if (choice && attachments.length === 0 && !event.mediaUrl) {
+      await chooseOwnerBot(deps, existing, event, choice);
+      return;
+    }
     // A linked sender pasting a fresh code re-points this address at another
     // of their bots (only their own codes apply).
     if (await tryRedeemLinkCode(deps, event)) return;
@@ -623,6 +631,88 @@ async function stopOwnerWork(
   });
   await enqueueDeliverJob(deps);
   if (stop?.runIds.length) await finishThreadStop(deps, identity, target, stop);
+}
+
+/**
+ * The owner's "/use <name>", an owner command like YES/NO/LEAVE: points this conversation at
+ * another of their bots, matched by exact name, then by a unique prefix. "/use" alone or
+ * "/bots" lists them, as does a name that matches none or several. Always answered by text,
+ * keyed to this delivery, so a redelivered copy changes nothing.
+ */
+async function chooseOwnerBot(
+  deps: MessagingInboundDeps,
+  identity: IdentityRow & { installationId: string | null },
+  event: MessagingInboundMessage,
+  choice: BotChoiceCommand,
+): Promise<void> {
+  const key = `command:use:${identity.id}:${event.handle}`;
+  const answered = await deps.prisma.messagingOutbound.findUnique({
+    where: { idempotencyKey: key },
+    select: { id: true },
+  });
+  if (answered) return;
+  const bots = botChoices(await listMessagingIdentityBots(deps.prisma, identity));
+  const list = bots.length
+    ? [
+        "Your agents:",
+        ...bots.map((bot) => `- ${bot.label}${bot.id === identity.botId ? " (current)" : ""}`),
+        "Send /use <name> to switch.",
+      ].join("\n")
+    : "You have no agents to switch to.";
+  const reply = async (body: string) => {
+    await writeConfirmation(deps.prisma, identity, key, body);
+    await enqueueDeliverJob(deps);
+  };
+  if (choice.kind === "list") return reply(list);
+
+  const matches = matchBotChoices(bots, choice.name);
+  const [bot] = matches;
+  if (!bot || matches.length > 1) {
+    const lead = bot
+      ? "More than one of your agents matches that name."
+      : "None of your agents matches that name.";
+    return reply(`${lead}\n${list}`);
+  }
+  const changed = await setMessagingIdentityBot(
+    deps.prisma,
+    { identityId: identity.id, userId: identity.userId, botId: bot.id },
+    (tx, { bot }) => writeConfirmation(tx, identity, key, `Messages here now reach "${bot.name}".`),
+  );
+  if (changed.ok) return enqueueDeliverJob(deps);
+  if (changed.reason === "bot_linked") {
+    return reply(
+      `"${bot.name}" is already linked to another chat app. Unlink it there first, then try again.`,
+    );
+  }
+  // The bot was archived or the identity changed since the list was read.
+  return reply(list);
+}
+
+type BotChoice = { id: string; name: string; label: string };
+
+/** Bots that share a name across Spaces are told apart by their space's name. */
+function botChoices(
+  bots: Array<{ id: string; name: string; space: { name: string } }>,
+): BotChoice[] {
+  const named = (name: string) => bots.filter((bot) => foldBotName(bot.name) === foldBotName(name));
+  return bots.map((bot) => ({
+    id: bot.id,
+    name: bot.name,
+    label: named(bot.name).length > 1 ? `${bot.name} (${bot.space.name})` : bot.name,
+  }));
+}
+
+function matchBotChoices(bots: BotChoice[], query: string): BotChoice[] {
+  const wanted = foldBotName(query);
+  const exact = bots.filter(
+    (bot) => foldBotName(bot.label) === wanted || foldBotName(bot.name) === wanted,
+  );
+  if (exact.length) return exact;
+  return bots.filter((bot) => foldBotName(bot.label).startsWith(wanted));
+}
+
+function foldBotName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /** How long a channel invite or connection request can be answered by text. */

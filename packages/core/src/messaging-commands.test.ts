@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { parseMessagingCommand } from "./messaging-commands.js";
+import { parseBotChoiceCommand, parseMessagingCommand } from "./messaging-commands.js";
+
+describe("parseBotChoiceCommand", () => {
+  it("reads /use with a name, ignoring case, spacing and surrounding quotes", () => {
+    expect(parseBotChoiceCommand("/use Research")).toEqual({ kind: "use", name: "Research" });
+    expect(parseBotChoiceCommand("  /USE   Night Owl  ")).toEqual({
+      kind: "use",
+      name: "Night Owl",
+    });
+    expect(parseBotChoiceCommand('/use "Night Owl"')).toEqual({ kind: "use", name: "Night Owl" });
+  });
+
+  it("lists on a bare /use or /bots", () => {
+    for (const text of ["/use", " /use  ", "/bots", "/BOTS"])
+      expect(parseBotChoiceCommand(text)).toEqual({ kind: "list" });
+  });
+
+  it("treats everything else as a normal message", () => {
+    for (const text of ["use Research", "/user x", "/bots please", "/usex", "please /use x", ""])
+      expect(parseBotChoiceCommand(text)).toBeNull();
+  });
+});
 
 describe("parseMessagingCommand", () => {
   it("parses the minimal command set case-insensitively", () => {
