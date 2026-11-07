@@ -8,6 +8,7 @@ type FakeTool = {
 };
 
 const seen = vi.hoisted(() => ({
+  mainSystemPrompt: "",
   helperSystemPrompt: "",
   helperPrompt: "",
   helperToolNames: [] as string[],
@@ -28,6 +29,7 @@ vi.mock("@earendil-works/pi-agent-core", () => ({
     async prompt(text: string) {
       const delegate = this.tools.find((tool) => tool.name === "run_subagent");
       if (delegate) {
+        seen.mainSystemPrompt = this.systemPrompt;
         await this.tools
           .find((tool) => tool.name === "use_tool")
           ?.execute("main-call-1", { name: "list_fleet", arguments: {} });
@@ -72,38 +74,48 @@ vi.mock("./pi-openai-compatible-provider.js", () => ({
 import { PiAgentRuntime } from "./pi-runtime.js";
 import { isSubagentToolExecution } from "./run-effects.js";
 
+async function runWithHelper(productName?: string) {
+  seen.mainSystemPrompt = "";
+  seen.helperSystemPrompt = "";
+  seen.helperPrompt = "";
+  seen.helperToolNames = [];
+  seen.toolExecutionIds.clear();
+  seen.resultForParent = undefined;
+  for await (const _event of new PiAgentRuntime().run(
+    {
+      botId: "b",
+      threadId: "t",
+      runId: "r",
+      prompt: "hello",
+      instructions: "",
+      ...(productName ? { productName } : {}),
+      history: [],
+      tools: builtinAgentTools,
+      model: { provider: "test", id: "plain-model" },
+      executeTool: vi.fn(async (name: string, _args: unknown, executionId: string) => {
+        seen.toolExecutionIds.set(name, executionId);
+        return { ok: true };
+      }),
+    } as never,
+    {
+      operationId: "1",
+      traceId: "1",
+      spaceId: "w",
+      userId: "u",
+      signal: new AbortController().signal,
+    },
+  )) {
+    // drain
+  }
+}
+
 describe("helpers know who they are talking to", () => {
   beforeEach(async () => {
-    seen.helperSystemPrompt = "";
-    seen.helperPrompt = "";
-    seen.helperToolNames = [];
-    seen.toolExecutionIds.clear();
-    seen.resultForParent = undefined;
-    for await (const _event of new PiAgentRuntime().run(
-      {
-        botId: "b",
-        threadId: "t",
-        runId: "r",
-        prompt: "hello",
-        instructions: "",
-        history: [],
-        tools: builtinAgentTools,
-        model: { provider: "test", id: "plain-model" },
-        executeTool: vi.fn(async (name: string, _args: unknown, executionId: string) => {
-          seen.toolExecutionIds.set(name, executionId);
-          return { ok: true };
-        }),
-      } as never,
-      {
-        operationId: "1",
-        traceId: "1",
-        spaceId: "w",
-        userId: "u",
-        signal: new AbortController().signal,
-      },
-    )) {
-      // drain
-    }
+    await runWithHelper();
+  });
+
+  it("calls the bot a Rakazo bot by default", () => {
+    expect(seen.mainSystemPrompt).toMatch(/^You are a Rakazo bot with a real computer\. /);
   });
 
   it("tells the helper its task comes from the parent bot, not the user", () => {
@@ -142,5 +154,21 @@ describe("helpers know who they are talking to", () => {
     expect(text).toBe(
       'Result from your helper "scout" (not a message from the user):\nThere are 3 files.',
     );
+  });
+});
+
+describe("a configured product name", () => {
+  beforeEach(async () => {
+    await runWithHelper("Bot");
+  });
+
+  it("names the product in the bot's and the helper's system prompts", () => {
+    expect(seen.mainSystemPrompt).toMatch(/^You are a Bot bot with a real computer\. /);
+    expect(seen.mainSystemPrompt).not.toContain("Rakazo");
+    expect(seen.helperSystemPrompt).toContain('You are a Bot subagent named "scout".');
+    expect(seen.helperSystemPrompt).toContain(
+      "Messages marked as automated come from Bot, not from the user.",
+    );
+    expect(seen.helperSystemPrompt).not.toContain("Rakazo");
   });
 });

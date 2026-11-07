@@ -53,7 +53,7 @@ import { enrichLogContext, getLogger } from "@rakazo/logging";
 import { sanitizedError } from "@rakazo/logging/monitoring";
 import { formatAgentEnvironmentInstruction } from "./agent-environment.js";
 import { createApprovedEffectReplayQueue } from "./approval-effect.js";
-import { PARTIAL_REPLY_NOTE } from "./automated-messages.js";
+import { PARTIAL_REPLY_NOTE, withProductLabel } from "./automated-messages.js";
 import { loadBotMessageContext } from "./bot-messages.js";
 import {
   commandCredentialRedactions,
@@ -780,7 +780,7 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
                 ...(speaker ? { speaker } : {}),
                 waiting: m.steeringMessages.length > 0,
                 content: isPartialReplyClientNonce(m.clientNonce)
-                  ? `${text}\n\n${PARTIAL_REPLY_NOTE}`
+                  ? `${text}\n\n${withProductLabel(PARTIAL_REPLY_NOTE, deps.productName)}`
                   : text,
               };
             }),
@@ -1647,7 +1647,10 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
           : buildApprovalContinuation(
               approvedEffects,
               (request) => redactSecrets(JSON.stringify(request), runSecrets),
-              { exposedToolNames: new Set(partitionTools(tools).listed.map((tool) => tool.name)) },
+              {
+                exposedToolNames: new Set(partitionTools(tools).listed.map((tool) => tool.name)),
+                productName: deps.productName,
+              },
             );
         const replyContext = await loadReplyContext(deps.prisma, thread.id, run.sourceMessageId);
         let userTimeZone: string | null | undefined;
@@ -1877,9 +1880,11 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
                 offeredFleetTools: offeredFleetTools(strategicBuiltins),
                 followUpsOffered: followUpsOffered(strategicBuiltins, ownerStartedRun),
                 userComputer,
+                productName: deps.productName,
               })
                 .filter((instruction): instruction is string => Boolean(instruction))
                 .join("\n\n"),
+              productName: deps.productName,
               history: runtimeHistory,
               currentTurnImages,
               currentRunRequiresImageInput,

@@ -56,6 +56,8 @@ export interface ExecutorDeps {
   ticketBoardEnabled?: boolean;
   /** Group chat runs may only read connected apps; their other connector calls are refused. */
   groupRunsReadOnly?: boolean;
+  /** The name bots call the product in their prompts (RAKAZO_PRODUCT_NAME). Default "Rakazo". */
+  productName?: string;
   phoneCallsEnabled?: boolean;
   phoneCallCooldownMinutes?: number;
   phoneCallRingSeconds?: number;

@@ -6,7 +6,7 @@ import {
   IntegrationProviderSettings,
   unwrapEnvFromKeyManager,
 } from "@rakazo/adapters";
-import { phoneCallSettings } from "@rakazo/core";
+import { phoneCallSettings, productNameFromEnv } from "@rakazo/core";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import { stopOnShutdownSignals } from "@rakazo/core/node/shutdown-signals";
 import { startWorkerHealth, watchEventLoopStalls } from "./health.js";
@@ -316,6 +316,7 @@ async function main() {
     onTicketChange: ticketChanges,
     ticketBoardEnabled,
     groupRunsReadOnly: process.env.RAKAZO_GROUP_RUNS_READ_ONLY === "true",
+    productName: productNameFromEnv(process.env),
     ...phoneCallSettings(process.env),
     messaging: messaging ? createMessagingContextLoader(prisma) : undefined,
     web: createWebProvider(),

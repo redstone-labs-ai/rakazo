@@ -726,6 +726,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     onTicketChange: ticketChanges,
     ticketBoardEnabled,
     groupRunsReadOnly: env.groupRunsReadOnly,
+    productName: env.productName,
     phoneCallsEnabled: env.phoneCallsEnabled,
     phoneCallRingSeconds: env.phoneCallRingSeconds,
     phoneCallCooldownMinutes: env.phoneCallCooldownMinutes,
