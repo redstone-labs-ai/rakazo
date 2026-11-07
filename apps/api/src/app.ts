@@ -720,6 +720,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     deploymentModelKey: env.deploymentModelKey,
     deploymentModelConfigured: env.deploymentModelConfigured,
     dataDir: env.dataDir,
+    orgInstructions: env.orgInstructions,
     notifications,
     jobs,
     events,

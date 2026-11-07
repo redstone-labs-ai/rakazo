@@ -9,6 +9,7 @@ import type {
   ConnectorCall,
   ConnectorCatalogItem,
   ConnectorEvent,
+  ConnectorInstructions,
   ConnectorProvider,
   ConnectorTool,
   ManagedConnectorProvider,
@@ -901,6 +902,23 @@ export class ConnectorRegistry implements ConnectorProvider {
       }
     }
     return discovered;
+  }
+
+  async discoverInstructions(context: AdapterContext): Promise<ConnectorInstructions[]> {
+    const instructions = await Promise.all(
+      [...this.providers].map(async ([connectorId, provider]) => {
+        try {
+          return (await provider.discoverInstructions?.(context)) ?? [];
+        } catch (error) {
+          getLogger().warn("connector instructions unavailable", {
+            "connector.id": connectorId,
+            error: sanitizeComposioError(error),
+          });
+          return [];
+        }
+      }),
+    );
+    return instructions.flat();
   }
 
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {

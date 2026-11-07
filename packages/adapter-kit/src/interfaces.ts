@@ -43,6 +43,7 @@ import type {
   ConnectorCapabilities,
   ConnectorCatalogItem,
   ConnectorEvent,
+  ConnectorInstructions,
   ConnectorTool,
   ControlLeaseRef,
   MemoryCapabilities,
@@ -261,6 +262,9 @@ export interface ConnectorProvider {
     context: AdapterContext,
   ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined>;
   execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent>;
+  /** Guidance from the bot's servers that are connected now, read after `discoverTools`
+   * from the sessions it opened rather than by asking the servers again. */
+  discoverInstructions?(context: AdapterContext): Promise<ConnectorInstructions[]>;
   /** Release run-scoped state (open sessions) of a run that ended for good on
    * this worker. A run that ended elsewhere is bounded by the provider itself. */
   endRun?(runId: string): void;

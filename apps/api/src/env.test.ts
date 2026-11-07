@@ -349,6 +349,14 @@ describe("loadEnv", () => {
     );
   });
 
+  it("reads organization instructions for every bot, trimmed, and leaves them unset by default", () => {
+    expect(loadEnv(base).orgInstructions).toBeUndefined();
+    expect(
+      loadEnv({ ...base, RAKAZO_ORG_INSTRUCTIONS: "\n Call customers members. \n" })
+        .orgInstructions,
+    ).toBe("Call customers members.");
+  });
+
   it("defaults the remote MCP private-endpoint escape to off", () => {
     expect(loadEnv(base).mcpAllowPrivateEndpoint).toBe(false);
     expect(loadEnv({ ...base, MCP_ALLOW_PRIVATE_ENDPOINT: "true" }).mcpAllowPrivateEndpoint).toBe(
