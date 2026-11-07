@@ -2,9 +2,11 @@ import type {
   JobPublisher,
   MessagingInboundAttachment,
   MessagingInboundMessage,
+  MessagingSurface,
   SandboxProvider,
 } from "@rakazo/adapter-kit";
 import { messagingDeliverJob, runContinueJob } from "@rakazo/adapter-kit";
+import type { MessagingLineRow } from "@rakazo/adapters";
 import { insertGroupOutboundRows } from "@rakazo/adapters";
 import type { MessageBlock } from "@rakazo/contracts";
 import { ATTACHMENT_MAX_COUNT, isAttachmentAudioMimeType } from "@rakazo/contracts";
@@ -36,6 +38,11 @@ import {
   setMessagingIdentityBot,
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
+import {
+  findMessagingLine,
+  handleMessagingLineEvent,
+  tryBindMessagingLine,
+} from "./messaging-lines.js";
 import type { MessagingReceipts } from "./messaging-receipts.js";
 import {
   MESSAGE_ROUTING_REARMED_REASON,
@@ -101,6 +108,8 @@ export interface MessagingInboundDeps {
     mimeType: string;
     signal: AbortSignal;
   }) => Promise<string | null>;
+  /** Reads group member lists; lines answer only while their owner is alone with the bot. */
+  messaging?: Pick<MessagingSurface, "conversationMembers">;
 }
 
 /** A stored inbound attachment, with spoken words when audio was transcribed. */
@@ -219,6 +228,20 @@ async function handleDirectEvent(
     );
   }
 
+  await deliverToBot(deps, ids, event, `messaging:${event.provider}:${event.handle}`);
+}
+
+/**
+ * Delivers an owner's message to their bot's chat like a direct message: message routines
+ * when configured, otherwise a run whose reply is mirrored back.
+ */
+async function deliverToBot(
+  deps: MessagingInboundDeps,
+  ids: ProvisionedMessagingIdentity,
+  event: MessagingInboundMessage,
+  clientNonce: string,
+): Promise<void> {
+  const text = [event.content, event.mediaUrl].filter(Boolean).join("\n");
   const stored = await storeInboundMedia(deps, ids, event);
 
   // Message-trigger routines own the delivery when configured. Do not also
@@ -242,7 +265,7 @@ async function handleDirectEvent(
     ],
     prompt: promptTextForAttachments(body, stored.artifacts),
     trigger: "messaging",
-    clientNonce: `messaging:${event.provider}:${event.handle}`,
+    clientNonce,
   });
   if (sent.runId) {
     const runId = sent.runId;
@@ -274,6 +297,49 @@ async function handleDirectEvent(
       getLogger().error("messaging inbound run enqueue error", error);
     });
   }
+}
+
+/**
+ * An owner's message on a line, after its member check: handled like a direct message, with
+ * the owner commands of one, and keyed to the line so its run is the owner's only while the
+ * line stays bound and unpaused.
+ */
+async function deliverLineMessage(
+  deps: MessagingInboundDeps,
+  line: MessagingLineRow,
+  event: MessagingInboundMessage,
+  clientNonce: string,
+): Promise<void> {
+  const identity = await deps.prisma.messagingIdentity.update({
+    where: { id: line.identityId },
+    data: { outboundSinceInbound: 0, lastInboundAt: new Date() },
+  });
+  const attachments = event.attachments ?? [];
+  if (!event.content.trim() && !event.mediaUrl && attachments.length === 0) return;
+  const text = event.contentWithoutMention ?? event.content;
+  const command = parseMessagingCommand(text);
+  if (command === "stop") {
+    if (attachments.length === 0 && !event.mediaUrl) {
+      await stopOwnerWork(deps, identity, event);
+      return;
+    }
+  } else if (command && (await applyOwnerCommand(deps, identity, command))) return;
+  const thread = await deps.prisma.thread.findFirst({ where: { botId: identity.botId } });
+  if (!thread) throw new Error(`messaging identity ${identity.id} has no thread`);
+  await deliverToBot(
+    deps,
+    {
+      provider: identity.provider,
+      address: identity.address,
+      userId: identity.userId,
+      spaceId: identity.spaceId,
+      botId: identity.botId,
+      threadId: thread.id,
+      created: false,
+    },
+    event,
+    clientNonce,
+  );
 }
 
 /** Time for all voice note transcripts of one inbound message; files are delivered without them after it. */
@@ -886,6 +952,16 @@ async function handleChannelEvent(
   deps: MessagingInboundDeps,
   event: MessagingInboundMessage,
 ): Promise<void> {
+  // A line is its owner's own chat: no group discovery, invites or fan-out.
+  const line = await findMessagingLine(deps.prisma, event.threadId);
+  if (line) {
+    await handleMessagingLineEvent(deps, event, line, (current, clientNonce) =>
+      deliverLineMessage(deps, current, event, clientNonce),
+    );
+    return;
+  }
+  if (!event.departures && !event.arrivals && (await tryBindMessagingLine(deps, event))) return;
+
   const channelName = event.channelName ? sanitizeMessagingLabel(event.channelName) : null;
   const channel = await deps.prisma.messagingChannel.upsert({
     where: { threadId: event.threadId },
@@ -920,6 +996,19 @@ async function handleChannelEvent(
             status: { in: ["invited", "approved"] },
           },
       data: { status: "left" },
+    });
+    return;
+  }
+
+  // Someone joining is picked up from the member list the next time anyone writes.
+  if (event.arrivals) return;
+
+  // The platform keeps a member list but it could not be read: nobody's membership is
+  // confirmed, so nothing is discovered, swept or delivered for this message.
+  if (event.participantsUnavailable) {
+    getLogger().warn("messaging group message dropped: member list unavailable", {
+      provider: event.provider,
+      channelId: channel.id,
     });
     return;
   }
@@ -1009,6 +1098,10 @@ async function handleChannelEvent(
 
   // A service message (a pin, a join) carries nothing for a bot to read.
   if (!event.content.trim() && !event.mediaUrl && !event.attachments?.length) return;
+
+  // Where the platform delivers every group message, only those that @-mention the bot are
+  // addressed to it; the rest must not start a run for each member's bot.
+  if (event.groupMentionRequired && !event.mentionsBot) return;
 
   // Only approved owners' bots participate.
   const senderMember = await deps.prisma.messagingChannelMember.findUnique({

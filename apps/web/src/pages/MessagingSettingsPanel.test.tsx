@@ -548,3 +548,57 @@ it("keeps a teammate's DM link next to the user's own workspace elsewhere", asyn
   await act(async () => links[1]!.click());
   expect(messaging.link.start).toHaveBeenCalledWith({ botId: "bot-1" });
 });
+
+it("lists a linked group chat with its bot and pause, and unlinks it", async () => {
+  messaging.status.mockResolvedValue({
+    enabled: true,
+    providers: ["teams"],
+    openSignup: false,
+    identities: [],
+    lineProviders: ["teams"],
+    lines: [
+      {
+        id: "line-1",
+        identityId: "mi-line",
+        provider: "teams",
+        name: "Chief only",
+        botId: "bot-1",
+        botName: "Chief",
+        status: "paused",
+      },
+    ],
+  });
+  messaging.identities.unlink.mockResolvedValue({ ok: true });
+  await renderOverlay();
+
+  expect(container.textContent).toContain("Chief only");
+  expect(container.textContent).toContain("Microsoft Teams, Chief, Paused");
+  const unlink = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Unlink",
+  );
+  await act(async () => unlink?.click());
+  expect(messaging.identities.unlink).toHaveBeenCalledWith({ identityId: "mi-line" });
+});
+
+it("issues a group chat code for the chosen bot", async () => {
+  messaging.status.mockResolvedValue({
+    enabled: true,
+    providers: ["teams"],
+    openSignup: false,
+    identities: [],
+    lineProviders: ["teams"],
+    lines: [],
+  });
+  await renderOverlay();
+
+  const group = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Microsoft Teams group chat",
+  );
+  expect(group).toBeDefined();
+  await act(async () => group?.click());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(messaging.link.start).toHaveBeenCalledWith({ botId: "bot-1", forGroup: true });
+  expect(container.querySelector('[data-testid="messaging-link-code"]')?.textContent).toContain(
+    "group chat with only you and the bot",
+  );
+});

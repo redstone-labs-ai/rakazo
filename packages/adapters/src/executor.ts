@@ -41,6 +41,7 @@ import {
   isTooManyDatabaseConnections,
   loadRunHistoryMessages,
   loadRunTurnCheckpoint,
+  messagingLineRunFromOwner,
   parseComputerMode,
   RunHistoryWriteError,
   readRunTimingFields,
@@ -654,8 +655,14 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
         // Team chat reaches people besides the owner, so their runs get a group channel's limits.
         const teamChatConversationId =
           run.trigger === "messaging" ? thread.externalConversationId : null;
+        // A line message runs as its owner's only while the line is bound and not paused.
+        const lineRunFromOwner =
+          run.trigger === "messaging"
+            ? await messagingLineRunFromOwner(deps.prisma, messagingSource?.clientNonce)
+            : null;
         const nonOwnerChatRun =
           messagingChannelRun ||
+          lineRunFromOwner === false ||
           (teamChatConversationId
             ? !(await teamChatRunFromOwner(deps.prisma, {
                 externalConversationId: teamChatConversationId,

@@ -11,8 +11,8 @@ import type {
   WebhookOptions,
 } from "chat";
 import { stringifyMarkdown } from "chat";
-import type { MessagingPlatform } from "./chat-sdk-surface.js";
-import { boundInboundMarkdown } from "./chat-sdk-surface.js";
+import type { MessagingMembershipChange, MessagingPlatform } from "./chat-sdk-surface.js";
+import { boundInboundMarkdown, MessagingConversationGoneError } from "./chat-sdk-surface.js";
 
 export interface TeamsCredentials {
   appId: string;
@@ -24,9 +24,10 @@ export interface TeamsCredentials {
 /**
  * Microsoft Teams, mounted when the app id, password and tenant are all set.
  * Groups and channels use personal group linking, like iMessage and Telegram.
- * Teams names no roster and only delivers group messages that @mention the bot
- * unless the app manifest grants the ChatMessage.Read.Chat and
- * ChannelMessage.Read.Group resource-specific permissions.
+ * Messages carry no roster, so the members come from the Bot Connector's member
+ * list. Teams only delivers group messages that @mention the bot unless the app
+ * manifest grants the ChatMessage.Read.Chat and ChannelMessage.Read.Group
+ * resource-specific permissions.
  */
 export function teamsPlatform(credentials: {
   teamsAppId?: string | undefined;
@@ -35,14 +36,19 @@ export function teamsPlatform(credentials: {
 }): MessagingPlatform | undefined {
   const { teamsAppId, teamsAppPassword, teamsAppTenantId } = credentials;
   if (!teamsAppId || !teamsAppPassword || !teamsAppTenantId) return undefined;
+  const adapter = new LazyTeamsAdapter({
+    appId: teamsAppId,
+    appPassword: teamsAppPassword,
+    tenantId: teamsAppTenantId,
+  });
   return {
     provider: "teams",
-    capabilities: { direct: true, groups: true, receipt: "typing", files: true },
-    adapter: new LazyTeamsAdapter({
-      appId: teamsAppId,
-      appPassword: teamsAppPassword,
-      tenantId: teamsAppTenantId,
-    }),
+    capabilities: { direct: true, groups: true, receipt: "typing", files: true, lines: true },
+    adapter,
+    members: (threadId) => adapter.listMembers(threadId),
+    membershipChanges: (raw) => adapter.membershipChange(raw),
+    groupMentionRequired: true,
+    botMentions: (raw) => adapter.botMentions(raw),
     channelName: teamsChannelName,
     normalizeThreadId: teamsChannelThreadId,
     isPermanentSendError: isTeamsUnreachable,
@@ -68,6 +74,21 @@ export function teamsActivityTenant(activity: unknown): string | undefined {
   const tenant =
     asRecord(record?.conversation)?.tenantId ?? asRecord(asRecord(record?.channelData)?.tenant)?.id;
   return typeof tenant === "string" && tenant ? tenant.toLowerCase() : undefined;
+}
+
+/** The conversation type the adapter derives a thread id from, as it reads an activity. */
+function teamsConversationType(
+  activity: Record<string, unknown>,
+): "personal" | "groupChat" | "channel" | undefined {
+  const conversation = asRecord(activity.conversation);
+  const explicit = conversation?.conversationType;
+  if (explicit === "personal" || explicit === "groupChat" || explicit === "channel")
+    return explicit;
+  if (conversation?.isGroup === false) return "personal";
+  if (conversation?.isGroup === true) {
+    return asRecord(asRecord(activity.channelData)?.team)?.id ? "channel" : "groupChat";
+  }
+  return undefined;
 }
 
 /** Group chat topic or channel name; Teams leaves both off most messages. */
@@ -103,6 +124,56 @@ function isTeamsUnreachable(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error.name === "PermissionError" || error.name === "AuthenticationError") return true;
   return error.name === "NetworkError" && error.message.startsWith("Resource not found");
+}
+
+/** Bot Connector member list pages: 500 is the largest page Teams serves. */
+const MEMBER_PAGE_SIZE = 500;
+/** Stop paging past this many pages (100,000 members) rather than loop on a bad token. */
+const MEMBER_PAGE_LIMIT = 200;
+
+/** The parts of the Teams SDK's Bot Connector client the member list uses. */
+type MemberPage = {
+  members: Array<{ id: string }>;
+  continuationToken?: string;
+};
+type ConnectorApp = {
+  apiFor(serviceUrl: string): {
+    conversations: {
+      getPagedMembers(
+        conversationId: string,
+        pageSize?: number,
+        continuationToken?: string,
+      ): Promise<MemberPage>;
+    };
+  };
+};
+
+/**
+ * Only the HTTP status of a failed connector call: the SDK's error carries the request,
+ * bot token included, so it never reaches a log.
+ */
+function memberListError(error: unknown): Error {
+  const response = asRecord(asRecord(error)?.response);
+  const status = response?.status;
+  // 403: the bot was removed from the conversation; 404: the conversation is gone.
+  if (status === 403 || status === 404) {
+    return new MessagingConversationGoneError(
+      `Teams member list request failed with status ${status}`,
+    );
+  }
+  return new Error(
+    typeof status === "number"
+      ? `Teams member list request failed with status ${status}`
+      : "Teams member list request failed",
+  );
+}
+
+function accountIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((account) => {
+    const id = asRecord(account)?.id;
+    return typeof id === "string" && id ? [id] : [];
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -165,6 +236,87 @@ export class LazyTeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   private get ready(): TeamsAdapter {
     if (!this.implementation) throw new Error("Teams adapter is not initialized");
     return this.implementation;
+  }
+  private isOwnBot(accountId: string) {
+    const appId = this.config.appId.toLowerCase();
+    const id = accountId.toLowerCase();
+    return id === appId || id.endsWith(`:${appId}`);
+  }
+  /** The text of this bot's @-mentions in a message activity, as the message text shows them. */
+  botMentions(raw: unknown): string[] {
+    const entities = asRecord(raw)?.entities;
+    if (!Array.isArray(entities)) return [];
+    return entities.flatMap((entity) => {
+      const record = asRecord(entity);
+      const mentioned = asRecord(record?.mentioned)?.id;
+      const text = record?.text;
+      if (record?.type !== "mention" || typeof mentioned !== "string" || !this.isOwnBot(mentioned))
+        return [];
+      if (typeof text !== "string") return [];
+      const label = text.replace(/<\/?at\b[^>]*>/gi, "").trim();
+      return label ? [`@${label}`] : [];
+    });
+  }
+  /**
+   * Everyone in the conversation but this bot, from the Bot Connector's paged member list at
+   * the conversation's own service URL, with the adapter's bot token.
+   */
+  async listMembers(threadId: string): Promise<string[]> {
+    const adapter = await this.load();
+    const { conversationId, serviceUrl } = adapter.decodeThreadId(threadId);
+    // The connector client lives on the adapter's Teams app, which the adapter keeps protected.
+    const app = (adapter as unknown as { app: ConnectorApp }).app;
+    const conversations = app.apiFor(serviceUrl).conversations;
+    const members: string[] = [];
+    let continuationToken: string | undefined;
+    for (let page = 0; page < MEMBER_PAGE_LIMIT; page += 1) {
+      let result: MemberPage;
+      try {
+        result = await conversations.getPagedMembers(
+          conversationId,
+          MEMBER_PAGE_SIZE,
+          continuationToken,
+        );
+      } catch (error) {
+        throw memberListError(error);
+      }
+      members.push(...accountIds(result.members).filter((id) => !this.isOwnBot(id)));
+      continuationToken = result.continuationToken || undefined;
+      if (!continuationToken) return members;
+    }
+    throw new Error("Teams member list has too many pages");
+  }
+  /**
+   * People added to or removed from a group chat or team, from a conversationUpdate activity.
+   * A 1:1 chat has no members to track.
+   */
+  membershipChange(raw: unknown): MessagingMembershipChange | undefined {
+    const activity = asRecord(raw);
+    if (activity?.type !== "conversationUpdate" || !this.implementation) return undefined;
+    const conversationType = teamsConversationType(activity);
+    const conversationId = asRecord(activity.conversation)?.id;
+    const { serviceUrl, id } = activity;
+    if (
+      conversationType === "personal" ||
+      typeof conversationId !== "string" ||
+      typeof serviceUrl !== "string" ||
+      typeof id !== "string"
+    )
+      return undefined;
+    const added = accountIds(activity.membersAdded);
+    const removedIds = accountIds(activity.membersRemoved);
+    if (added.length === 0 && removedIds.length === 0) return undefined;
+    const removed = removedIds.filter((member) => !this.isOwnBot(member));
+    return {
+      threadId: teamsChannelThreadId(
+        this.implementation.encodeThreadId({ conversationId, serviceUrl, conversationType }),
+        raw,
+      ),
+      handle: id,
+      added: added.filter((member) => !this.isOwnBot(member)),
+      removed,
+      botRemoved: removed.length < removedIds.length,
+    };
   }
   async initialize(chat: ChatInstance) {
     await (await this.load()).initialize(chat);

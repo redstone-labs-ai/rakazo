@@ -102,6 +102,7 @@ function createDeps(
     }),
   };
   const prisma = {
+    messagingLine: { findUnique: vi.fn(async () => null) },
     messagingIdentity: {
       findUnique: vi.fn(
         async ({
@@ -2264,6 +2265,82 @@ describe("createMessagingInboundHandler channel routing", () => {
     });
     expect(deps.sendUserMessage).not.toHaveBeenCalled();
   });
+
+  it("stops delivering a Teams group to a member the member list no longer names", async () => {
+    const ada = {
+      id: "cm-1",
+      channelId: "ch-1",
+      address: "29:ada",
+      identityId: "mi-1",
+      status: "approved",
+    };
+    const grace = {
+      id: "cm-2",
+      channelId: "ch-1",
+      address: "29:grace",
+      identityId: "mi-2",
+      status: "approved",
+    };
+    const deps = createDeps({
+      identity: {
+        id: "mi-1",
+        provider: "teams",
+        address: "29:ada",
+        userId: "user-1",
+        spaceId: "ws-1",
+        botId: "bot-1",
+      },
+      members: [ada, grace],
+    });
+    const teamsGroup = {
+      ...groupEvent,
+      provider: "teams",
+      threadId: "teams:chat:service",
+      from: "29:ada",
+      // Grace left the chat without saying anything: only the member list shows it.
+      participants: ["29:ada"],
+      content: "@Rakazo what is due today?",
+    };
+    await createMessagingInboundHandler(deps)(teamsGroup);
+
+    expect(grace.status).toBe("left");
+    expect(ada.status).toBe("approved");
+    expect(deps.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(deps.sendUserMessage).toHaveBeenCalledWith(expect.objectContaining({ botId: "bot-1" }));
+  });
+
+  it("delivers nothing and changes no membership when the member list could not be read", async () => {
+    const ada = {
+      id: "cm-1",
+      channelId: "ch-1",
+      address: "29:ada",
+      identityId: "mi-1",
+      status: "approved",
+    };
+    const grace = {
+      id: "cm-2",
+      channelId: "ch-1",
+      address: "29:grace",
+      identityId: "mi-2",
+      status: "approved",
+    };
+    const deps = createDeps({ members: [ada, grace] });
+    await createMessagingInboundHandler(deps)({
+      ...groupEvent,
+      provider: "teams",
+      threadId: "teams:chat:service",
+      from: "29:ada",
+      participants: [],
+      participantsUnavailable: true,
+      content: "@Rakazo what is due today?",
+    });
+
+    expect(deps.sendUserMessage).not.toHaveBeenCalled();
+    expect(deps.prisma.messagingChannelMember.updateMany).not.toHaveBeenCalled();
+    expect(deps.prisma.messagingChannelMember.upsert).not.toHaveBeenCalled();
+    expect(deps.outboundRows).toEqual([]);
+    expect([ada.status, grace.status]).toEqual(["approved", "approved"]);
+  });
 });
 
 describe("createMessagingInboundHandler owner-command status races", () => {
@@ -2574,6 +2651,14 @@ describe("createMessagingInboundHandler linking", () => {
     expect(deps.provision).not.toHaveBeenCalled();
     expect(deps.sendUserMessage).not.toHaveBeenCalled();
     expect(deps.outboundRows).toHaveLength(0);
+  });
+
+  it("never links a direct chat with a group chat's code", async () => {
+    const deps = createDeps({ identity: null, linkCode: { ...liveCode, forGroup: true } });
+    (deps as unknown as { openSignup: boolean }).openSignup = false;
+    await createMessagingInboundHandler(deps)({ ...dmEvent, content: "abcd-2345" });
+    expect(deps.createdIdentities).toEqual([]);
+    expect(deps.outboundRows).toEqual([]);
   });
 
   it("links an unknown sender via a valid code and confirms", async () => {

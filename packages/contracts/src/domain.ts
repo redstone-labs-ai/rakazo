@@ -1332,6 +1332,20 @@ export const MessagingLinkedIdentitySchema = z.object({
 });
 export type MessagingLinkedIdentity = z.infer<typeof MessagingLinkedIdentitySchema>;
 
+/** A group conversation bound to one bot as the caller's own chat. */
+export const MessagingLineSchema = z.object({
+  id: Id,
+  /** Unlinking the identity ends the line. */
+  identityId: Id,
+  provider: z.string(),
+  name: z.string().nullable(),
+  botId: Id,
+  botName: z.string(),
+  /** Paused while someone besides the owner is in the conversation, until the owner resumes. */
+  status: z.enum(["active", "paused"]),
+});
+export type MessagingLine = z.infer<typeof MessagingLineSchema>;
+
 export const MessagingInstallationSummarySchema = z.object({
   id: Id,
   provider: z.string(),
@@ -1358,6 +1372,10 @@ export const MessagingStatusSchema = z.object({
   openSignup: z.boolean(),
   /** The caller's linked chat apps, one entry per (provider, address). */
   identities: z.array(MessagingLinkedIdentitySchema),
+  /** Platforms whose group chats can be linked to one bot as the caller's own chat. */
+  lineProviders: z.array(z.string()).optional(),
+  /** The caller's group chats linked that way. */
+  lines: z.array(MessagingLineSchema).optional(),
 });
 export type MessagingStatus = z.infer<typeof MessagingStatusSchema>;
 

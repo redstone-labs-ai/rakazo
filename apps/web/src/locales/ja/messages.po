@@ -150,6 +150,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr "{amount} / {period}"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "{app} のグループチャット"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, other {{name} と # 個のボットを削除しますか？}}"
@@ -3361,6 +3365,10 @@ msgstr ""
 msgid "Group"
 msgstr "グループ"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "グループチャット"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "グループ設定"
@@ -4881,6 +4889,7 @@ msgstr "APIキーを貼り付け"
 msgid "Paste your API key, then test again."
 msgstr "APIキーを貼り付けてから、もう一度テストしてください。"
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5772,6 +5781,10 @@ msgstr "送信"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr ""
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "あなたとボットだけがいる {linkApp} のグループチャットで、10 分以内に <0>{linkCode}</0> を送信してください。"
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."

@@ -112,6 +112,8 @@ export interface RouterDeps {
     providers: string[];
     addresses: Record<string, string>;
     openSignup: boolean;
+    /** Providers whose group conversations can be bound to a bot as a line. */
+    lineProviders?: string[];
   };
   /** Present only when the deployment bills; self-hosted installs leave it unset. */
   billing?: BillingService;

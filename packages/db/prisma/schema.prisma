@@ -1886,6 +1886,7 @@ model MessagingIdentity {
   outboundSinceInbound Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+  line                 MessagingLine?
 
   @@unique([provider, address])
   @@index([userId])
@@ -1921,6 +1922,26 @@ model MessagingChannelMember {
   @@map("messaging_channel_members")
 }
 
+/// A group conversation bound to one bot as its owner's own chat. Its identity's address is
+/// `<ownerAddress>#<threadId>` and its dmThreadId the conversation, so replies, STOP and
+/// unlinking work as for a direct chat. It answers only while the owner is the conversation's
+/// only member besides the bot.
+model MessagingLine {
+  id           String            @id @default(cuid())
+  identityId   String            @unique
+  identity     MessagingIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+  provider     String
+  threadId     String            @unique
+  ownerAddress String
+  name         String?
+  /// Set while the line is paused because the member list was not just its owner.
+  suspendedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@map("messaging_lines")
+}
+
 /// Short-lived web-issued code binding a chat address to an existing user+bot.
 model MessagingLinkCode {
   id        String   @id @default(cuid())
@@ -1928,6 +1949,8 @@ model MessagingLinkCode {
   userId    String
   spaceId   String
   botId     String
+  /// Binds a group conversation as a line instead of a direct chat.
+  forGroup  Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
 

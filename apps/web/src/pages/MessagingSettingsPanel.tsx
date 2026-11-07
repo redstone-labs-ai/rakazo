@@ -48,6 +48,7 @@ export function MessagingSettingsPanel() {
     expiresAt: string;
     botId: string;
     provider: string;
+    forGroup: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +99,7 @@ export function MessagingSettingsPanel() {
   useEffect(() => {
     if (!linkRequest) return;
     const known = new Map(status?.identities.map((identity) => [identity.id, identity.botId]));
+    const knownLines = new Map(status?.lines?.map((line) => [line.id, line.botId]));
     let active = true;
     let poll: number;
     const expire = window.setTimeout(
@@ -112,14 +114,20 @@ export function MessagingSettingsPanel() {
       try {
         const next = await rpc.messaging.status();
         if (!active) return;
-        if (
-          next.identities.some(
-            (identity) =>
-              identity.provider === linkRequest?.provider &&
-              identity.botId === linkRequest?.botId &&
-              known.get(identity.id) !== identity.botId,
-          )
-        ) {
+        const linked = linkRequest?.forGroup
+          ? (next.lines ?? []).some(
+              (line) =>
+                line.provider === linkRequest.provider &&
+                line.botId === linkRequest.botId &&
+                knownLines.get(line.id) !== line.botId,
+            )
+          : next.identities.some(
+              (identity) =>
+                identity.provider === linkRequest?.provider &&
+                identity.botId === linkRequest?.botId &&
+                known.get(identity.id) !== identity.botId,
+            );
+        if (linked) {
           active = false;
           window.clearTimeout(expire);
           await writeSaved(queryClient, statusOptions.queryKey, () => next);
@@ -185,6 +193,10 @@ export function MessagingSettingsPanel() {
   );
   const slackInstall = connectOptions.some(({ method }) => method === "install");
   const linkOptions = connectOptions.filter(({ method }) => method === "link");
+  const lineProviders = linkOptions
+    .map(({ provider }) => provider)
+    .filter((provider) => status?.lineProviders?.includes(provider));
+  const lines = status?.lines ?? [];
   const slackInstallations = installationStatus.installations.filter(
     (installation) => installation.provider === "slack",
   );
@@ -209,10 +221,10 @@ export function MessagingSettingsPanel() {
   const linkApp = linkRequest ? providerLabel(linkRequest.provider) : "";
   const linkAddress = linkRequest ? status?.addresses?.[linkRequest.provider] : undefined;
 
-  function startLink(provider: string, botId: string) {
+  function startLink(provider: string, botId: string, forGroup = false) {
     void act(async () => {
-      const issued = await rpc.messaging.link.start({ botId });
-      setLinkRequest({ ...issued, botId, provider });
+      const issued = await rpc.messaging.link.start({ botId, ...(forGroup ? { forGroup } : {}) });
+      setLinkRequest({ ...issued, botId, provider, forGroup });
     });
   }
 
@@ -392,9 +404,9 @@ export function MessagingSettingsPanel() {
       ) : null}
 
       <section>
-        {status?.identities.length ? (
+        {status?.identities.length || lines.length ? (
           <ul className="mb-4 space-y-3">
-            {status.identities.map((identity) => (
+            {(status?.identities ?? []).map((identity) => (
               <Row
                 key={identity.id}
                 actions={
@@ -415,6 +427,30 @@ export function MessagingSettingsPanel() {
                 </Meta>
               </Row>
             ))}
+            {lines.map((line) => (
+              <Row
+                key={line.id}
+                actions={
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      void act(() =>
+                        rpc.messaging.identities.unlink({ identityId: line.identityId }),
+                      )
+                    }
+                  >
+                    <Trans>Unlink</Trans>
+                  </Button>
+                }
+              >
+                <span className="text-foreground">{line.name ?? t`Group chat`}</span>
+                <Meta>
+                  {providerLabel(line.provider)}, {line.botName}
+                  {line.status === "paused" ? <>, {t`Paused`}</> : null}
+                </Meta>
+              </Row>
+            ))}
           </ul>
         ) : null}
         {linkOptions.length ? (
@@ -431,13 +467,29 @@ export function MessagingSettingsPanel() {
                     {providerLabel(provider)}
                   </DropdownMenuItem>
                 ))}
+                {lineProviders.map((provider) => {
+                  const app = providerLabel(provider);
+                  return (
+                    <DropdownMenuItem
+                      key={`${provider}-group`}
+                      onClick={() => startLink(provider, linkBotId, true)}
+                    >
+                      {t`${app} group chat`}
+                    </DropdownMenuItem>
+                  );
+                })}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         ) : null}
         {linkCode ? (
           <p className="mt-3 text-[14px] text-foreground/75" data-testid="messaging-link-code">
-            {linkAddress ? (
+            {linkRequest?.forGroup ? (
+              <Trans>
+                Send <span className="font-mono text-foreground">{linkCode}</span> in a {linkApp}{" "}
+                group chat with only you and the bot, within 10 minutes.
+              </Trans>
+            ) : linkAddress ? (
               <Trans>
                 Send <span className="font-mono text-foreground">{linkCode}</span> to{" "}
                 <span className="text-foreground">{linkAddress}</span> from {linkApp} within 10
