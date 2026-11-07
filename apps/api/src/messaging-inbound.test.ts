@@ -23,7 +23,7 @@ function createDeps(
     storeAttachment?: MessagingInboundDeps["storeAttachment"];
     transcribe?: MessagingInboundDeps["transcribe"];
     directoryUserId?: string;
-    bots?: Array<{ id: string; spaceId: string }>;
+    bots?: Array<{ id: string; spaceId: string; name?: string; space?: { name: string } }>;
     linkedBotIds?: string[];
   } = {},
 ) {
@@ -128,7 +128,13 @@ function createDeps(
           return identity;
         },
       ),
-      update: vi.fn(async () => identity),
+      findFirst: vi.fn(async () => identity),
+      update: vi.fn(async ({ data }: { data: { botId?: string } }) => {
+        // botId is unique: a bot already linked to a chat identity cannot take another.
+        if (data.botId && overrides.linkedBotIds?.includes(data.botId))
+          throw Object.assign(new Error("Unique constraint failed on botId"), { code: "P2002" });
+        return identity;
+      }),
       findMany: vi.fn(async () => (overrides.linkedBotIds ?? []).map((botId) => ({ botId }))),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const created = { id: "mi-linked", ...data };
@@ -140,6 +146,10 @@ function createDeps(
     bot: {
       findUnique: vi.fn(async () => ({ name: "Chief" })),
       findMany: vi.fn(async () => overrides.bots ?? []),
+      findFirst: vi.fn(
+        async ({ where }: { where: { id: string } }) =>
+          (overrides.bots ?? []).find((bot) => bot.id === where.id) ?? null,
+      ),
     },
     directoryIdentity: {
       findUnique: vi.fn(async () =>
@@ -263,6 +273,10 @@ function createDeps(
               where.sourceMessageId.in.includes(row.sourceMessageId as string) &&
               (row.status ?? "pending") !== where.status.not,
           ).length,
+      ),
+      findUnique: vi.fn(
+        async ({ where }: { where: { idempotencyKey: string } }) =>
+          outboundRows.find((row) => row.idempotencyKey === where.idempotencyKey) ?? null,
       ),
       findFirst: vi.fn(
         async ({
@@ -2727,6 +2741,196 @@ describe("createMessagingInboundHandler linking", () => {
     await handle(dmEvent);
     expect(deps.provision).toHaveBeenCalled();
     expect(deps.sendUserMessage).toHaveBeenCalled();
+  });
+});
+
+describe("createMessagingInboundHandler bot choice", () => {
+  const bot = (id: string, name: string, spaceId = "ws-1", space = "Home") => ({
+    id,
+    name,
+    spaceId,
+    space: { name: space },
+  });
+  const owner = (bots: Array<ReturnType<typeof bot>>) => createDeps({ bots });
+  const use = (content: string) => ({ ...dmEvent, content });
+  // Every DM also updates the identity's activity fields; a switch is the update that sets botId.
+  const switches = (deps: ReturnType<typeof createDeps>) =>
+    vi
+      .mocked(deps.prisma.messagingIdentity.update)
+      .mock.calls.filter(([args]) => "botId" in (args.data as object));
+
+  it("points the conversation at the bot /use names and confirms by DM", async () => {
+    const deps = owner([bot("bot-1", "Chief"), bot("bot-2", "Research", "ws-2", "Lab")]);
+    await createMessagingInboundHandler(deps)(use("/use research"));
+
+    expect(deps.prisma.messagingIdentity.findFirst).toHaveBeenCalledWith({
+      where: { id: "mi-1", userId: "user-1" },
+    });
+    expect(deps.prisma.messagingIdentity.update).toHaveBeenCalledWith({
+      where: { id: "mi-1" },
+      data: { botId: "bot-2", spaceId: "ws-2" },
+    });
+    expect(deps.outboundRows).toEqual([
+      expect.objectContaining({
+        idempotencyKey: "command:use:mi-1:handle-1",
+        kind: "dm",
+        identityId: "mi-1",
+        body: 'Messages here now reach "Research".',
+      }),
+    ]);
+    expect(deps.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "messaging.deliver" }),
+    );
+    expect(deps.sendUserMessage).not.toHaveBeenCalled();
+    expect(deps.acknowledge).not.toHaveBeenCalled();
+  });
+
+  it("offers only the owner's live bots in Spaces they belong to", async () => {
+    const deps = owner([bot("bot-1", "Chief")]);
+    await createMessagingInboundHandler(deps)(use("/bots"));
+    expect(deps.prisma.bot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: "user-1",
+          archivedAt: null,
+          space: { memberships: { some: { userId: "user-1" } } },
+        },
+      }),
+    );
+  });
+
+  it("prefers an exact name, then takes a unique prefix", async () => {
+    const bots = [bot("bot-1", "Chief"), bot("bot-2", "Res"), bot("bot-3", "Research")];
+    const exact = owner(bots);
+    await createMessagingInboundHandler(exact)(use("/use RES"));
+    expect(exact.prisma.messagingIdentity.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { botId: "bot-2", spaceId: "ws-1" } }),
+    );
+    const prefix = owner(bots);
+    await createMessagingInboundHandler(prefix)(use("/use resea"));
+    expect(prefix.prisma.messagingIdentity.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { botId: "bot-3", spaceId: "ws-1" } }),
+    );
+  });
+
+  it("lists the owner's bots, marking the current one, on a bare /use or /bots", async () => {
+    for (const content of ["/use", "/bots"]) {
+      const deps = owner([bot("bot-1", "Chief"), bot("bot-2", "Research")]);
+      await createMessagingInboundHandler(deps)(use(content));
+      expect(deps.outboundRows).toEqual([
+        expect.objectContaining({
+          idempotencyKey: "command:use:mi-1:handle-1",
+          body: "Your agents:\n- Chief (current)\n- Research\nSend /use <name> to switch.",
+        }),
+      ]);
+      expect(switches(deps)).toEqual([]);
+      expect(deps.sendUserMessage).not.toHaveBeenCalled();
+    }
+  });
+
+  it("answers an unknown or ambiguous name with the list and changes nothing", async () => {
+    const bots = [bot("bot-1", "Chief"), bot("bot-2", "Research"), bot("bot-3", "Reports")];
+    const list =
+      "Your agents:\n- Chief (current)\n- Research\n- Reports\nSend /use <name> to switch.";
+    const ambiguous = owner(bots);
+    await createMessagingInboundHandler(ambiguous)(use("/use re"));
+    expect(ambiguous.outboundRows).toEqual([
+      expect.objectContaining({
+        body: `More than one of your agents matches that name.\n${list}`,
+      }),
+    ]);
+    const unknown = owner(bots);
+    await createMessagingInboundHandler(unknown)(use("/use zed"));
+    expect(unknown.outboundRows).toEqual([
+      expect.objectContaining({ body: `None of your agents matches that name.\n${list}` }),
+    ]);
+    for (const deps of [ambiguous, unknown]) {
+      expect(switches(deps)).toEqual([]);
+      expect(deps.sendUserMessage).not.toHaveBeenCalled();
+    }
+  });
+
+  it("tells bots that share a name apart by their space", async () => {
+    const bots = [
+      bot("bot-1", "Assistant", "ws-1", "Home"),
+      bot("bot-2", "Assistant", "ws-2", "Acme"),
+    ];
+    const ambiguous = owner(bots);
+    await createMessagingInboundHandler(ambiguous)(use("/use assistant"));
+    expect(ambiguous.outboundRows).toEqual([
+      expect.objectContaining({
+        body: "More than one of your agents matches that name.\nYour agents:\n- Assistant (Home) (current)\n- Assistant (Acme)\nSend /use <name> to switch.",
+      }),
+    ]);
+    const labelled = owner(bots);
+    await createMessagingInboundHandler(labelled)(use("/use Assistant (Acme)"));
+    expect(labelled.prisma.messagingIdentity.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { botId: "bot-2", spaceId: "ws-2" } }),
+    );
+  });
+
+  it("explains, and changes nothing, when the bot is already linked to another chat app", async () => {
+    const deps = createDeps({
+      bots: [bot("bot-1", "Chief"), bot("bot-2", "Research")],
+      linkedBotIds: ["bot-2"],
+    });
+    await createMessagingInboundHandler(deps)(use("/use Research"));
+    expect(deps.outboundRows).toEqual([
+      expect.objectContaining({
+        idempotencyKey: "command:use:mi-1:handle-1",
+        body: '"Research" is already linked to another chat app. Unlink it there first, then try again.',
+      }),
+    ]);
+    expect(deps.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps an installed app's conversation in the space it was installed in", async () => {
+    const deps = createDeps({
+      identity: {
+        id: "mi-1",
+        provider: "teams",
+        address: "+15551111111",
+        installationId: "inst-1",
+        userId: "user-1",
+        spaceId: "ws-team",
+        botId: "bot-1",
+      },
+      bots: [bot("bot-1", "Chief", "ws-team")],
+    });
+    await createMessagingInboundHandler(deps)({ ...use("/bots"), installationSpaceId: "ws-team" });
+    expect(deps.prisma.bot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ spaceId: "ws-team" }) }),
+    );
+  });
+
+  it("answers a redelivered /use once", async () => {
+    const deps = owner([bot("bot-1", "Chief"), bot("bot-2", "Research")]);
+    const handle = createMessagingInboundHandler(deps);
+    await handle(use("/use Research"));
+    await handle(use("/use Research"));
+    expect(switches(deps)).toHaveLength(1);
+    expect(deps.outboundRows).toHaveLength(1);
+  });
+
+  it("delivers /use with media, or from a group chat, as an ordinary message", async () => {
+    const media = owner([bot("bot-1", "Chief"), bot("bot-2", "Research")]);
+    await createMessagingInboundHandler(media)({
+      ...use("/use Research"),
+      mediaUrl: "https://cdn.example/photo.jpg",
+    });
+    expect(media.sendUserMessage).toHaveBeenCalled();
+    const group = createDeps({
+      bots: [bot("bot-1", "Chief"), bot("bot-2", "Research")],
+      members: [{ id: "cm-1", address: dmEvent.from, identityId: "mi-1", status: "approved" }],
+    });
+    await createMessagingInboundHandler(group)({ ...groupEvent, content: "/use Research" });
+    for (const deps of [media, group]) {
+      expect(deps.prisma.bot.findMany).not.toHaveBeenCalled();
+      expect(switches(deps)).toEqual([]);
+      expect(deps.outboundRows).not.toContainEqual(
+        expect.objectContaining({ idempotencyKey: "command:use:mi-1:handle-1" }),
+      );
+    }
   });
 });
 

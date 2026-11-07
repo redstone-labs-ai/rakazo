@@ -12,3 +12,14 @@ export function parseMessagingCommand(text: string): MessagingCommand | null {
   if (/^STOP(?: NOW)?[.!?…]*$/.test(normalized.replace(/\s+/g, " "))) return "stop";
   return null;
 }
+
+/** "/use <name>" picks which of the owner's bots the conversation reaches; "/use" or "/bots" lists them. */
+export type BotChoiceCommand = { kind: "list" } | { kind: "use"; name: string };
+
+export function parseBotChoiceCommand(text: string): BotChoiceCommand | null {
+  const match = /^\/(use|bots)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  if (!match) return null;
+  const name = (match[2] ?? "").replace(/^["“](.*)["”]$/s, "$1").trim();
+  if (match[1]!.toLowerCase() === "bots") return name ? null : { kind: "list" };
+  return name ? { kind: "use", name } : { kind: "list" };
+}
