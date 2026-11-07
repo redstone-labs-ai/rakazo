@@ -1226,6 +1226,51 @@ describe("deliverMessagingOutbound channel runs", () => {
       expect.objectContaining({ clientNonce: "messaging-peer:m-1:bot-2" }),
     );
   });
+
+  it("gives a peer who has left the group, by its member list, nothing of the reply", async () => {
+    const deps = createChannelDeps({ text: "@Helper are you there?" });
+    const peer = {
+      id: "mm-2",
+      channelId: "ch-1",
+      address: "+15553333333",
+      identityId: "mi-2",
+      status: "approved",
+    };
+    deps.prisma.messagingChannelMember.findMany.mockImplementation((async (args: {
+      where: { address?: { in: string[] } };
+    }) =>
+      [peer].filter(
+        (member) => !args.where.address || args.where.address.in.includes(member.address),
+      )) as unknown as typeof deps.prisma.messagingChannelMember.findMany);
+    const conversationMembers = vi.fn(async () => ["+15551111111"]);
+    deps.messaging.conversationMembers = conversationMembers;
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(conversationMembers).toHaveBeenCalledWith("sendblue:grp-1", expect.anything());
+    expect(deps.sendToThread).toHaveBeenCalledWith(
+      { threadId: "sendblue:grp-1", body: "Alice's agent: @Helper are you there?" },
+      context,
+    );
+    expect(deps.prisma.messagingChannelMember.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ address: { in: ["+15551111111"] } }),
+    });
+    expect(deps.contextMessages).toEqual([]);
+    expect(deps.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("gives no peer the reply when the group's member list cannot be read", async () => {
+    const deps = createChannelDeps({ text: "@Helper are you there?" });
+    deps.messaging.conversationMembers = vi.fn(async () => {
+      throw new Error("member list request failed with status 500");
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    // The group itself still gets the reply; only the peers' copies are withheld.
+    expect(deps.sendToThread).toHaveBeenCalledTimes(1);
+    expect(deps.prisma.messagingChannelMember.findMany).not.toHaveBeenCalled();
+    expect(deps.contextMessages).toEqual([]);
+    expect(deps.sendUserMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe("deliverMessagingOutbound transient failure retry", () => {

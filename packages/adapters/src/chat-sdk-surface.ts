@@ -59,6 +59,9 @@ export function boundInboundMarkdown(adapter: Adapter): void {
 /** Inbound webhook bodies larger than this are rejected before parsing. */
 export const MESSAGING_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
+/** How long one read of a conversation's member list is reused. */
+export const MEMBER_LIST_TTL_MS = 60_000;
+
 /** Telegram Bot API limits: photos up to 10 MB, any upload up to 50 MB. */
 const TELEGRAM_PHOTO_MAX_BYTES = 10_000_000;
 const TELEGRAM_UPLOAD_MAX_BYTES = 50_000_000;
@@ -97,6 +100,17 @@ export interface MessagingPlatform {
   /** Group roster addresses from the raw inbound payload, excluding our line. */
   participants?: (raw: unknown) => string[];
   /**
+   * Group roster addresses from the platform's member list, excluding our bot, for platforms
+   * whose payloads carry none. Takes the adapter's thread id. Supersedes `participants`.
+   */
+  members?: (threadId: string) => Promise<string[]>;
+  /**
+   * Member changes a verified raw payload reports (Teams conversationUpdate), with the
+   * adapter's thread id. Clears cached member lists; departures reach the inbound sink like
+   * `departures` does.
+   */
+  membershipChanges?: (raw: unknown) => MessagingMembershipChange | undefined;
+  /**
    * Member departures one raw payload reports, for platforms that send
    * per-event leave notices instead of a roster (Telegram service messages).
    * `botLeft` marks our own bot leaving the conversation; undefined when the
@@ -131,6 +145,18 @@ export interface MessagingPlatform {
   ) => Partial<MessagingInboundMessage>;
 }
 
+/** Who joined or left one conversation, as a platform event reports it. */
+export interface MessagingMembershipChange {
+  /** The adapter's thread id of the conversation. */
+  threadId: string;
+  /** The platform's id for the event. */
+  handle: string;
+  added: string[];
+  removed: string[];
+  /** Our own bot was removed from the conversation. */
+  botRemoved: boolean;
+}
+
 /** One mounted platform with its own Chat SDK instance. */
 interface MountedPlatform {
   platform: MessagingPlatform;
@@ -152,6 +178,11 @@ interface MountedPlatform {
  */
 export class ChatSdkMessagingSurface implements MessagingSurface {
   private readonly byProvider = new Map<string, MountedPlatform>();
+  /** Member lists by thread id, each read at most once per MEMBER_LIST_TTL_MS. */
+  private readonly memberLists = new Map<
+    string,
+    { expiresAt: number; members: Promise<string[]> }
+  >();
   private sink: ((event: MessagingInboundEvent) => Promise<void>) | undefined;
   private initialized: Promise<void> | undefined;
 
@@ -205,6 +236,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
         }
         const event = this.toInbound(mounted, thread.id, thread.isDM, message);
         if (!event) return;
+        if (!event.isDirect && platform.members) await this.attachMembers(mounted, event);
         try {
           await this.sink?.(event);
         } catch (error) {
@@ -354,6 +386,85 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       .flatMap((message) => this.toInbound(mounted, adapterThreadId, isDirect, message) ?? []);
   }
 
+  async conversationMembers(threadId: string, context: AdapterContext): Promise<string[] | null> {
+    const mounted = this.byProvider.get(providerOfThreadId(threadId));
+    if (!mounted?.platform.members) return null;
+    return raceWithSignal(this.memberList(mounted, threadId), context.signal);
+  }
+
+  /**
+   * One read of the conversation's member list serves every message and reply for up to
+   * MEMBER_LIST_TTL_MS, including reads still in flight. Failures are not kept.
+   */
+  private async memberList(mounted: MountedPlatform, threadId: string): Promise<string[]> {
+    const members = mounted.platform.members;
+    if (!members) throw new Error(`${mounted.platform.provider} keeps no member list`);
+    await this.ensureInitialized();
+    const now = Date.now();
+    const cached = this.memberLists.get(threadId);
+    if (cached && cached.expiresAt > now) return cached.members;
+    for (const [key, entry] of this.memberLists) {
+      if (entry.expiresAt <= now) this.memberLists.delete(key);
+    }
+    const entry = {
+      expiresAt: now + MEMBER_LIST_TTL_MS,
+      members: members(toAdapterThreadId(mounted, threadId)),
+    };
+    this.memberLists.set(threadId, entry);
+    entry.members.catch(() => {
+      if (this.memberLists.get(threadId) === entry) this.memberLists.delete(threadId);
+    });
+    return entry.members;
+  }
+
+  /**
+   * Fills a group event's roster from the platform's member list. When the list cannot be
+   * read the event says so, so nobody's membership is confirmed or swept on partial data.
+   */
+  private async attachMembers(
+    mounted: MountedPlatform,
+    event: MessagingInboundMessage,
+  ): Promise<void> {
+    try {
+      event.participants = await this.memberList(mounted, event.threadId);
+    } catch (error) {
+      getLogger().warn("messaging group member list unavailable", {
+        provider: mounted.platform.provider,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      event.participants = [];
+      event.participantsUnavailable = true;
+    }
+  }
+
+  /**
+   * Member changes in a verified webhook: every cached list of that platform is dropped (a
+   * team's channels share members), and departures reach the sink like a roster sweep.
+   */
+  private async applyMembershipChanges(mounted: MountedPlatform, payload: unknown) {
+    const change = mounted.platform.membershipChanges?.(payload);
+    if (!change) return;
+    const { provider } = mounted.platform;
+    for (const key of this.memberLists.keys()) {
+      if (providerOfThreadId(key) === provider) this.memberLists.delete(key);
+    }
+    if (change.removed.length === 0 && !change.botRemoved) return;
+    await this.sink?.({
+      type: "message",
+      provider,
+      handle: change.handle,
+      threadId: toProviderThreadId(mounted, change.threadId),
+      isDirect: false,
+      from: "",
+      fromLabel: null,
+      channelName: null,
+      participants: [],
+      content: "",
+      mediaUrl: null,
+      departures: { addresses: change.removed, botLeft: change.botRemoved },
+    });
+  }
+
   /**
    * Proactively start the underlying Chat SDK instance. Webhook handling
    * and outbound sends already trigger this lazily (see ensureInitialized
@@ -471,6 +582,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     if (platform.peekStatuses && response.status < 300) {
       for (const status of platform.peekStatuses(payload)) await this.sink?.(status);
     }
+    if (response.status < 300) await this.applyMembershipChanges(mounted, payload);
     return response;
   }
 

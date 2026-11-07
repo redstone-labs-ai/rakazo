@@ -60,7 +60,10 @@ Microsoft Teams group chats and channels link the same way. Install the bot's Te
 or team and send it a message there. Unless your server's Teams app is set up to read every message,
 the bot only sees messages that @mention it. In a channel, every thread belongs to one conversation
 and the bot's replies start a new post in the channel. Files people share in group chats and channels
-don't reach the bot; files in a direct chat with it do.
+don't reach the bot; files in a direct chat with it do. The bot reads the chat's member list from
+Teams, so linked members are invited even before they speak, and someone who leaves or is removed
+stops receiving the group's messages. If Teams can't return the member list, the bot passes the
+message to nobody.
 
 When someone in a group asks the bot to change something in one of your connected apps, you approve
 it in the app first. A server can instead keep group chats read-only with
