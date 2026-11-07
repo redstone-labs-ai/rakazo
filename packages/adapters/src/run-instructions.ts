@@ -1,5 +1,9 @@
 import { FLEET_WRITE_TOOL_NAMES } from "@rakazo/contracts";
-import { runReadsThreadHistory, toolRequiresExplicitApproval } from "@rakazo/core";
+import {
+  DEFAULT_PRODUCT_NAME,
+  runReadsThreadHistory,
+  toolRequiresExplicitApproval,
+} from "@rakazo/core";
 import { MODEL_CANNOT_SEE_MESSAGE } from "./model-vision.js";
 import { replyGuidanceForOfferedTools } from "./run-replies.js";
 import type { UserComputerState } from "./run-tools-user-computer.js";
@@ -338,6 +342,8 @@ export function userTurnInstructions(parts: {
   /** The run can set its own follow-ups (see followUpsOffered). */
   followUpsOffered?: boolean;
   userComputer?: UserComputerState;
+  /** The name the bot calls the product (RAKAZO_PRODUCT_NAME). Default "Rakazo". */
+  productName?: string;
 }): (string | undefined)[] {
   return [
     parts.botInstructions,
@@ -380,7 +386,7 @@ export function userTurnInstructions(parts: {
       offeredBuiltinClause(
         parts.disabledBuiltinTools,
         "skill_read",
-        "When asked how Rakazo or you work, or how to set something up (apps, the user's own computer, billing), read the Rakazo skill before answering or acting.",
+        `When asked how ${parts.productName ?? DEFAULT_PRODUCT_NAME} or you work, or how to set something up (apps, the user's own computer, billing), read the Rakazo skill before answering or acting.`,
       ),
     parts.taughtSkillsLine,
     offeredBuiltinClause(

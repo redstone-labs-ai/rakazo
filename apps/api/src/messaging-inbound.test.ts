@@ -1660,6 +1660,32 @@ describe("createMessagingInboundHandler channel routing", () => {
     expect(deps.outboundRows.filter((row) => row.kind === "intro")).toHaveLength(0);
   });
 
+  it("names Rakazo in the intro and join prompt by default", async () => {
+    const deps = createDeps();
+    await createMessagingInboundHandler(deps)(groupEvent);
+
+    const bodies = deps.outboundRows.map((row) => row.body);
+    expect(bodies).toContain(
+      "Hi. This line hosts Rakazo personal agents. Some people in this group haven't messaged it yet; send any message to this line first if you want your own agent here.",
+    );
+    expect(bodies).toContain(
+      '"Family" was linked to your Rakazo agent. Reply YES to let your agent join the conversation there, or NO to stay out.',
+    );
+  });
+
+  it("uses the configured product name in the intro and join prompt", async () => {
+    const deps = createDeps();
+    await createMessagingInboundHandler({ ...deps, productName: "Bot" })(groupEvent);
+
+    const bodies = deps.outboundRows.map((row) => row.body);
+    expect(bodies).toContain(
+      "Hi. This line hosts Bot personal agents. Some people in this group haven't messaged it yet; send any message to this line first if you want your own agent here.",
+    );
+    expect(bodies).toContain(
+      '"Family" was linked to your Bot agent. Reply YES to let your agent join the conversation there, or NO to stay out.',
+    );
+  });
+
   it("fans an approved member's message out to every approved member bot", async () => {
     const senderMember = {
       id: "cm-1",

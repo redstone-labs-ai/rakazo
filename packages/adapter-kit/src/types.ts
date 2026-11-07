@@ -538,6 +538,8 @@ export interface AgentRunRequest {
   /** Group threads: the label ("User") the model sees on the prompt, the same as on history. */
   promptSpeaker?: string;
   instructions: string;
+  /** The name the bot calls the product (RAKAZO_PRODUCT_NAME); unset means "Rakazo". */
+  productName?: string;
   history: Array<{
     id?: string;
     createdAt?: string;

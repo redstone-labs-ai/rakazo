@@ -726,6 +726,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     onTicketChange: ticketChanges,
     ticketBoardEnabled,
     groupRunsReadOnly: env.groupRunsReadOnly,
+    productName: env.productName,
     phoneCallsEnabled: env.phoneCallsEnabled,
     phoneCallRingSeconds: env.phoneCallRingSeconds,
     phoneCallCooldownMinutes: env.phoneCallCooldownMinutes,
@@ -1144,6 +1145,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         provisionMessagingIdentity(prisma, request, policyEnv, env.newUserDefaults),
       openSignup: env.messagingOpenSignup,
       directoryLinking: env.teamsAutoLink,
+      productName: env.productName,
       signupPolicy: {
         signupsEnabled: env.signupsEnabled,
         signupAllowlist: env.signupAllowlist,

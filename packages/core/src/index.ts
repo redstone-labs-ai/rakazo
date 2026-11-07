@@ -75,6 +75,7 @@ export * from "./peer-history.js";
 export * from "./peer-messages.js";
 export * from "./plugin-catalog.js";
 export * from "./product-analytics.js";
+export * from "./product-name.js";
 export * from "./prompt-data.js";
 export * from "./refresh-coalescer.js";
 export * from "./remote-images.js";

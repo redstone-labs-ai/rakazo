@@ -23,6 +23,9 @@ direct message from someone who has signed in to the server with the same Micros
 Teams to their first bot that has no chat app yet, without a code, and the bot answers it. Anyone
 else links with a code as usual.
 
+The group intro, the prompt to join a group, and the bots themselves call the product Rakazo. Set
+`RAKAZO_PRODUCT_NAME` (up to 40 characters) on the api and the worker to use another name.
+
 In direct messages, a voice note the chat app delivers as an audio file (Telegram, for example)
 is transcribed when a voice provider that supports transcription is connected in **Voice**
 settings; without one, the bot receives the audio file.

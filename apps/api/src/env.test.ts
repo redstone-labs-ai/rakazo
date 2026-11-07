@@ -337,6 +337,18 @@ describe("loadEnv", () => {
     expect(loadEnv(base).emailApiKey).toBeUndefined();
   });
 
+  it("defaults the chat product name to Rakazo and trims a configured one", () => {
+    expect(loadEnv(base).productName).toBe("Rakazo");
+    expect(loadEnv({ ...base, RAKAZO_PRODUCT_NAME: " " }).productName).toBe("Rakazo");
+    expect(loadEnv({ ...base, RAKAZO_PRODUCT_NAME: " Bot " }).productName).toBe("Bot");
+  });
+  it("rejects a product name longer than 40 characters", () => {
+    expect(loadEnv({ ...base, RAKAZO_PRODUCT_NAME: "x".repeat(40) }).productName).toHaveLength(40);
+    expect(() => loadEnv({ ...base, RAKAZO_PRODUCT_NAME: "x".repeat(41) })).toThrow(
+      "RAKAZO_PRODUCT_NAME",
+    );
+  });
+
   it("defaults the remote MCP private-endpoint escape to off", () => {
     expect(loadEnv(base).mcpAllowPrivateEndpoint).toBe(false);
     expect(loadEnv({ ...base, MCP_ALLOW_PRIVATE_ENDPOINT: "true" }).mcpAllowPrivateEndpoint).toBe(
