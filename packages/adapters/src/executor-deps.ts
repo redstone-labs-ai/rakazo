@@ -49,6 +49,8 @@ export interface ExecutorDeps {
   /** The deployment default model can run; see resolveDeploymentModel. */
   deploymentModelConfigured?: boolean;
   dataDir?: string;
+  /** Context every bot gets ahead of its own instructions (RAKAZO_ORG_INSTRUCTIONS). */
+  orgInstructions?: string;
   notifications?: NotificationProvider;
   jobs: JobPublisher;
   /** Publishes board-change signals and wakes ticket owners; absent disables both. */

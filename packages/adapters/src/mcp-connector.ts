@@ -14,6 +14,7 @@ import type {
   AdapterContext,
   ConnectorCall,
   ConnectorEvent,
+  ConnectorInstructions,
   ConnectorProvider,
   ConnectorTool,
   SecretStore,
@@ -438,7 +439,23 @@ export class McpConnector implements ConnectorProvider {
     return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
   }
 
-  private async authorizedTools(context: AdapterContext): Promise<ConnectorTool[]> {
+  /**
+   * The `initialize` instructions of this bot's servers that have a live session, the one
+   * discovery just used or opened, so this never contacts a server. A server whose
+   * discovery failed has no session and is left out.
+   */
+  async discoverInstructions(context: AdapterContext): Promise<ConnectorInstructions[]> {
+    const instructions: ConnectorInstructions[] = [];
+    for (const { server } of await this.assignments(context)) {
+      const entry = this.sessions.get(this.sessionKey(server, context));
+      const text = entry?.revision === server.revision ? entry.session.instructions() : undefined;
+      if (text?.trim()) instructions.push({ source: server.name, text });
+    }
+    return instructions;
+  }
+
+  /** Servers this bot may use: its own assignments, then the ones shared with every bot. */
+  private async assignments(context: AdapterContext) {
     if (!context.botId) return [];
     const usable = { enabled: true, ...availableInSpace(context) };
     const [assigned, shared] = await Promise.all([
@@ -456,7 +473,11 @@ export class McpConnector implements ConnectorProvider {
         where: { ...usable, allBots: true, assignments: { none: { botId: context.botId } } },
       }),
     ]);
-    const assignments = [...assigned, ...shared.map(sharedAssignment)];
+    return [...assigned, ...shared.map(sharedAssignment)];
+  }
+
+  private async authorizedTools(context: AdapterContext): Promise<ConnectorTool[]> {
+    const assignments = await this.assignments(context);
     const groups = await Promise.all(
       assignments.map(async (assignment): Promise<ConnectorTool[]> => {
         const startedAt = Date.now();

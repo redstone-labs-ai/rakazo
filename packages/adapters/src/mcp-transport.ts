@@ -458,6 +458,11 @@ export class McpSession {
     }
   }
 
+  /** The server's `instructions` from the `initialize` handshake this session made; no request. */
+  instructions(): string | undefined {
+    return this.connected ? this.client.getInstructions() : undefined;
+  }
+
   async listTools(options?: { signal?: AbortSignal }): Promise<ListToolsResult> {
     this.assertConnected();
     return { tools: await listMcpTools(this.client, { signal: options?.signal }) };

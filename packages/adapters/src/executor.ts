@@ -752,6 +752,10 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
         const discoveredPromise = deps.connector
           ? deps.connector.discoverTools(context)
           : Promise.resolve([]);
+        // Read from the sessions discovery opened, so it never asks a server again.
+        const serverInstructionsPromise = discoveredPromise.then(
+          async () => (await deps.connector?.discoverInstructions?.(context)) ?? [],
+        );
         // Group threads only: who wrote each message, so the model can tell the bots and the
         // user apart. Direct chats stay plain user/assistant turns.
         const speakers = await loadThreadSpeakers(
@@ -876,6 +880,7 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
             : Promise.resolve(null);
         const [
           discovered,
+          serverInstructions,
           currentTurnImages,
           memoryContext,
           scratchpadContext,
@@ -883,6 +888,7 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
           recalled,
         ] = await Promise.all([
           discoveredPromise,
+          serverInstructionsPromise,
           loadCurrentTurnImages(deps, turnBlocks, context),
           nonOwnerChatRun
             ? Promise.resolve("")
@@ -1844,7 +1850,9 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
               // cache-aware context for connections declaring a cache window.
               contextStrategy: deps.contextStrategy,
               instructions: userTurnInstructions({
+                orgInstructions: deps.orgInstructions,
                 botInstructions: runIdentityInstruction(bot, run.trigger),
+                serverInstructions,
                 groupContext: groupReplyOptional
                   ? [groupContext, GROUP_UNADDRESSED_REPLY_GUIDANCE].filter(Boolean).join("\n")
                   : groupContext,

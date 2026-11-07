@@ -45,6 +45,11 @@ window and within the server's own pause window (Executor keeps a pause for abou
 After ten idle minutes, or when the run continues on another instance, the next call opens a fresh
 session.
 
+When an MCP server describes its tools in the instructions it sends on connecting, the bots
+that use it get that text with each run, labelled with the server's name and up to 4 KB per server
+(12 KB across all of them). They read it as information from that server, never as instructions
+that outrank you or the approval rules.
+
 ## Choose which bots use what
 
 Bots pick the apps they need. To add an MCP server to the bot you're chatting with, open it in

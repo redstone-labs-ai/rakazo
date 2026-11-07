@@ -162,6 +162,7 @@ export * from "./pipedream-connector.js";
 export * from "./plugin-connectors.js";
 export * from "./plugin-marketplace.js";
 export * from "./product-analytics.js";
+export { orgInstructionsFromEnv } from "./prompt-sections.js";
 export * from "./purchase-poll.js";
 export * from "./purchase-service.js";
 export * from "./push-token-store.js";

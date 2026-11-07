@@ -106,6 +106,18 @@ A value that does not parse is logged and ignored.
 RAKAZO_DEFAULT_ROUTINES='[{"name":"Morning brief","prompt":"Summarize my day.","crons":["0 8 * * 1-5"]}]'
 ```
 
+## Organization context
+
+`RAKAZO_ORG_INSTRUCTIONS` is plain text or markdown that every bot gets in every run: chats,
+groups and channels, and routines, for bots that exist already and ones created later. It comes
+under an "Organization context" heading ahead of each bot's own instructions, so a bot's owner can
+still refine it. Set it on the API and worker; a change applies to runs that start after they
+restart. It is trimmed, and text over 16 KB is cut to fit and logged.
+
+```sh
+RAKAZO_ORG_INSTRUCTIONS="Our support hours are 9 to 5 Eastern. Call customers members."
+```
+
 ## Default MCP servers
 
 `RAKAZO_DEFAULT_MCP_SERVERS` gives people MCP servers when they sign in, so they only have to

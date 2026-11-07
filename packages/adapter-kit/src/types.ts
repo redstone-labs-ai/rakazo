@@ -274,6 +274,16 @@ export interface ConnectorTool {
 }
 
 /**
+ * Guidance a connected server published about its own tools, such as the `instructions` of an
+ * MCP `initialize` result. It is the server's text, not the user's or the platform's.
+ */
+export interface ConnectorInstructions {
+  /** The server's display name. */
+  source: string;
+  text: string;
+}
+
+/**
  * Where a batch tool's arguments name the actions it runs: `args[items][i][action]`, each with
  * its own arguments at `args[items][i][arguments]`. Approval rules and the read/write check judge
  * those actions, never the batch tool, so allowing one action cannot allow the rest.
