@@ -175,6 +175,8 @@ export interface AppEnv {
   messagingOpenSignup: boolean;
   /** A Teams sender whose Entra account signed in here is linked without a code. */
   teamsAutoLink: boolean;
+  /** Product name in the chat messages the server writes itself (RAKAZO_PRODUCT_NAME). */
+  productName: string;
   /** Bot that owns team/external chat rooms on the messaging surface. */
   teamChatBotId: string | undefined;
   /** Optional model override for ambient engagement judging. */
@@ -361,6 +363,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     teamsAppTenantId: optional(source.TEAMS_APP_TENANT_ID),
     messagingOpenSignup: source.MESSAGING_OPEN_SIGNUP === "true",
     teamsAutoLink: source.RAKAZO_TEAMS_AUTO_LINK === "true",
+    productName: productNameFromEnv(source.RAKAZO_PRODUCT_NAME),
     teamChatBotId: optional(source.TEAM_CHAT_BOT_ID) ?? optional(source.SLACK_RAKAZO_BOT_ID),
     teamChatJudgeProvider: optional(source.TEAM_CHAT_JUDGE_PROVIDER),
     teamChatJudgeModel: optional(source.TEAM_CHAT_JUDGE_MODEL),
@@ -423,6 +426,16 @@ function voiceSummaryMinCharsFromEnv(value: string | undefined): number | undefi
     throw new Error("VOICE_SUMMARY_MIN_CHARS must be a positive whole number of characters");
   }
   return Number(raw);
+}
+
+const MAX_PRODUCT_NAME_LENGTH = 40;
+
+function productNameFromEnv(value: string | undefined): string {
+  const name = optional(value) ?? "Rakazo";
+  if (name.length > MAX_PRODUCT_NAME_LENGTH) {
+    throw new Error(`RAKAZO_PRODUCT_NAME must be at most ${MAX_PRODUCT_NAME_LENGTH} characters`);
+  }
+  return name;
 }
 
 function optional(value: string | undefined): string | undefined {
