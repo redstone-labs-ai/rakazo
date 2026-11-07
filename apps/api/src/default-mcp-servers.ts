@@ -4,7 +4,7 @@ import { buildMcpCredentialBlob, deleteSecretBestEffort } from "@rakazo/adapters
 import type { McpServerConfigInput as McpServerConfigInputType } from "@rakazo/contracts";
 import { McpServerConfigInput } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
-import { availableInSpace, runAsTenant } from "@rakazo/db";
+import { availableInSpace, runAsTenant, saveApprovalRule } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import { insertMcpServer } from "./mcp-servers.js";
 
@@ -20,7 +20,12 @@ export type DefaultMcpServer = {
   input: McpServerConfigInputType;
   shareWithAllBots: boolean;
   audience?: DefaultMcpServerAudience;
+  /** Tool names on the server that start as "Always allow" for each person it is added for. */
+  alwaysAllowTools?: string[];
 };
+
+/** An MCP tool name as the server lists it. "__" would read as another server's tool. */
+const MCP_TOOL_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9.-]|_(?!_))*$/;
 
 /** The roles an audience is matched against. */
 export type DefaultMcpServerRoles = { roles: string[]; oidcRoles: string[] };
@@ -87,6 +92,11 @@ export function defaultMcpServersFromEnv(
       skip("audience must be an object of string arrays");
       continue;
     }
+    const alwaysAllowTools = parseToolNames(fields.alwaysAllowTools);
+    if (alwaysAllowTools === null) {
+      skip("alwaysAllowTools must be an array of tool names");
+      continue;
+    }
     if (slugs.has(input.data.slug)) {
       skip(`duplicate slug ${input.data.slug}`);
       continue;
@@ -96,9 +106,20 @@ export function defaultMcpServersFromEnv(
       input: input.data,
       shareWithAllBots: fields.shareWithAllBots !== false,
       ...(audience ? { audience } : {}),
+      ...(alwaysAllowTools?.length ? { alwaysAllowTools } : {}),
     });
   }
   return servers;
+}
+
+/** Undefined when absent, null when malformed. */
+function parseToolNames(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return null;
+  const names = value.filter((name): name is string => typeof name === "string");
+  if (names.length !== value.length || !names.every((name) => MCP_TOOL_NAME.test(name)))
+    return null;
+  return [...new Set(names)];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,7 +162,9 @@ type Deps = { prisma: PrismaClient; secrets: SecretStore };
 /**
  * Adds each default server the person is in the audience for and has not been given before.
  * A server they already have under the same slug counts as given. Once given, a server is never
- * added again, so one the person deleted stays deleted. Returns the slugs added.
+ * added again, so one the person deleted stays deleted. Its `alwaysAllowTools` get an
+ * "Always allow" rule when it is added, never later, so a rule the person changed stays changed.
+ * Returns the slugs added.
  */
 export async function provisionDefaultMcpServers(
   deps: Deps,
@@ -190,6 +213,13 @@ export async function provisionDefaultMcpServers(
         const row = await insertMcpServer(tx, actor, server.input, stored, { everywhere: true });
         if (!server.shareWithAllBots)
           await tx.mcpServer.update({ where: { id: row.id }, data: { allBots: false } });
+        for (const tool of server.alwaysAllowTools ?? []) {
+          await saveApprovalRule(tx, actor, {
+            effect: "always_allow",
+            matchKind: "tool",
+            matchValue: `mcp__${server.input.slug}__${tool}`,
+          });
+        }
         return true;
       }),
     ).catch((error: unknown) => {
