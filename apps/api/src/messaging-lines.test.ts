@@ -487,10 +487,11 @@ describe("binding a line", () => {
     ]);
   });
 
-  it("leaves a direct chat's code alone in a group, and treats text that is no code as a message", async () => {
+  it("binds nothing with a direct chat's code, which a group spends, or with text that is no code", async () => {
     const direct = lineWorld({ line: null, code: { forGroup: false } });
     await direct.handle(codeMessage());
     expect(direct.lines).toEqual([]);
+    expect(direct.codes).toEqual([]);
     expect(direct.deps.prisma.messagingChannel.upsert).toHaveBeenCalled();
 
     const none = lineWorld({ line: null });
