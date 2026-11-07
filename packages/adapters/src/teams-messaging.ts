@@ -12,7 +12,7 @@ import type {
 } from "chat";
 import { stringifyMarkdown } from "chat";
 import type { MessagingMembershipChange, MessagingPlatform } from "./chat-sdk-surface.js";
-import { boundInboundMarkdown } from "./chat-sdk-surface.js";
+import { boundInboundMarkdown, MessagingConversationGoneError } from "./chat-sdk-surface.js";
 
 export interface TeamsCredentials {
   appId: string;
@@ -43,10 +43,12 @@ export function teamsPlatform(credentials: {
   });
   return {
     provider: "teams",
-    capabilities: { direct: true, groups: true, receipt: "typing", files: true },
+    capabilities: { direct: true, groups: true, receipt: "typing", files: true, lines: true },
     adapter,
     members: (threadId) => adapter.listMembers(threadId),
     membershipChanges: (raw) => adapter.membershipChange(raw),
+    groupMentionRequired: true,
+    botMentions: (raw) => adapter.botMentions(raw),
     channelName: teamsChannelName,
     normalizeThreadId: teamsChannelThreadId,
     isPermanentSendError: isTeamsUnreachable,
@@ -153,6 +155,12 @@ type ConnectorApp = {
 function memberListError(error: unknown): Error {
   const response = asRecord(asRecord(error)?.response);
   const status = response?.status;
+  // 403: the bot was removed from the conversation; 404: the conversation is gone.
+  if (status === 403 || status === 404) {
+    return new MessagingConversationGoneError(
+      `Teams member list request failed with status ${status}`,
+    );
+  }
   return new Error(
     typeof status === "number"
       ? `Teams member list request failed with status ${status}`
@@ -233,6 +241,21 @@ export class LazyTeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const appId = this.config.appId.toLowerCase();
     const id = accountId.toLowerCase();
     return id === appId || id.endsWith(`:${appId}`);
+  }
+  /** The text of this bot's @-mentions in a message activity, as the message text shows them. */
+  botMentions(raw: unknown): string[] {
+    const entities = asRecord(raw)?.entities;
+    if (!Array.isArray(entities)) return [];
+    return entities.flatMap((entity) => {
+      const record = asRecord(entity);
+      const mentioned = asRecord(record?.mentioned)?.id;
+      const text = record?.text;
+      if (record?.type !== "mention" || typeof mentioned !== "string" || !this.isOwnBot(mentioned))
+        return [];
+      if (typeof text !== "string") return [];
+      const label = text.replace(/<\/?at\b[^>]*>/gi, "").trim();
+      return label ? [`@${label}`] : [];
+    });
   }
   /**
    * Everyone in the conversation but this bot, from the Bot Connector's paged member list at

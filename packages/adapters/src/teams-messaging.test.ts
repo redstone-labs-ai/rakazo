@@ -5,7 +5,11 @@ import type * as TeamsAdapterModule from "@chat-adapter/teams";
 import type { AdapterContext, MessagingInboundMessage } from "@rakazo/adapter-kit";
 import { createLogger, createTestSink, installLogger } from "@rakazo/logging";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatSdkMessagingSurface, MessagingSendError } from "./chat-sdk-surface.js";
+import {
+  ChatSdkMessagingSurface,
+  MessagingConversationGoneError,
+  MessagingSendError,
+} from "./chat-sdk-surface.js";
 import { messagingEnvFromProcess, messagingPlatformsFromEnv } from "./messaging-platforms.js";
 import { LazyTeamsAdapter } from "./teams-messaging.js";
 
@@ -226,6 +230,7 @@ describe("Teams platform", () => {
       groups: true,
       receipt: "typing",
       files: true,
+      lines: true,
     });
     expect(platform?.adapter).toBeInstanceOf(LazyTeamsAdapter);
     expect((platform!.adapter as LazyTeamsAdapter).config).toEqual({
@@ -268,7 +273,7 @@ describe("Teams platform", () => {
     expect(events[0]?.threadId.startsWith("teams:")).toBe(true);
   });
 
-  it("names the 1:1 sender's directory account, and no group sender's", async () => {
+  it("names the sender's directory account in 1:1 and group chats", async () => {
     const from = { id: "29:ada", name: "Ada Lovelace", aadObjectId: "AAD-OBJECT-ADA" };
     const tenant = TENANT.toUpperCase();
     const direct = await deliver(activity({ conversation: personal, text: "hi", from, tenant }));
@@ -285,8 +290,10 @@ describe("Teams platform", () => {
         from,
       }),
     );
-    expect(group.events[0]).toBeDefined();
-    expect(group.events[0]?.directoryUser).toBeUndefined();
+    expect(group.events[0]?.directoryUser).toEqual({
+      tenantId: TENANT,
+      objectId: "aad-object-ada",
+    });
 
     const guest = await deliver(
       activity({ conversation: personal, text: "hi", from: { id: "29:guest", name: "Guest" } }),
@@ -586,6 +593,51 @@ describe("Teams group members", () => {
       }),
     );
     expect(events).toHaveLength(0);
+  });
+
+  it("marks group messages as addressed only by an @mention of this bot", async () => {
+    const mentioned = await deliver(mention({ text: "<at>Rakazo</at> ABCD-2345" }));
+    expect(mentioned.events[0]).toMatchObject({
+      mentionsBot: true,
+      groupMentionRequired: true,
+      contentWithoutMention: "ABCD-2345",
+    });
+    const otherMention = await deliver(
+      activity({
+        conversation: groupChat,
+        text: "<at>Grace</at> can you look?",
+        entities: [{ type: "mention", text: "<at>Grace</at>", mentioned: { id: "29:grace" } }],
+      }),
+    );
+    expect(otherMention.events[0]).toMatchObject({ groupMentionRequired: true });
+    expect(otherMention.events[0]).not.toHaveProperty("mentionsBot");
+    expect(otherMention.events[0]).not.toHaveProperty("contentWithoutMention");
+    const direct = await deliver(activity({ conversation: personal, text: "hi" }));
+    expect(direct.events[0]).not.toHaveProperty("groupMentionRequired");
+  });
+
+  it("tells a conversation the bot was removed from apart from a failed member list", async () => {
+    connector.members.set(groupChat.id, [[{ id: "29:ada", name: "Ada Lovelace" }]]);
+    const { surface, events } = await deliver(mention());
+    connector.forbidden.add(groupChat.id);
+    const surfaceWithFreshCache = createTeamsSurface().surface;
+    const failure = await surfaceWithFreshCache
+      .conversationMembers(events[0]!.threadId, context)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(MessagingConversationGoneError);
+    expect(await surface.conversationMembers(events[0]!.threadId, context)).toEqual(["29:ada"]);
+  });
+
+  it("reports people added to the chat as arrivals", async () => {
+    connector.members.set(groupChat.id, [[{ id: "29:ada", name: "Ada Lovelace" }]]);
+    const { surface, events } = createTeamsSurface();
+    await surface.handleWebhook("teams", webhook(mention()));
+    await surface.handleWebhook(
+      "teams",
+      webhook(conversationUpdate({ membersAdded: [{ id: "29:grace" }] })),
+    );
+    expect(events[1]).toMatchObject({ threadId: events[0]!.threadId, arrivals: ["29:grace"] });
+    expect(events[1]).not.toHaveProperty("departures");
   });
 
   it("ignores member changes the adapter refused", async () => {

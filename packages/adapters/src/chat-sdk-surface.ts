@@ -111,6 +111,13 @@ export interface MessagingPlatform {
    */
   membershipChanges?: (raw: unknown) => MessagingMembershipChange | undefined;
   /**
+   * Every group message reaches the bot once the platform grants it (Teams resource-specific
+   * consent), but only messages that @-mention the bot are addressed to it.
+   */
+  groupMentionRequired?: boolean;
+  /** How the raw message's @-mentions of our bot read in its text ("@Rakazo"). */
+  botMentions?: (raw: unknown) => string[];
+  /**
    * Member departures one raw payload reports, for platforms that send
    * per-event leave notices instead of a roster (Telegram service messages).
    * `botLeft` marks our own bot leaving the conversation; undefined when the
@@ -439,7 +446,8 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
 
   /**
    * Member changes in a verified webhook: every cached list of that platform is dropped (a
-   * team's channels share members), and departures reach the sink like a roster sweep.
+   * team's channels share members), and the change reaches the sink as an event without a
+   * message, departures like a roster sweep.
    */
   private async applyMembershipChanges(mounted: MountedPlatform, payload: unknown) {
     const change = mounted.platform.membershipChanges?.(payload);
@@ -448,7 +456,8 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     for (const key of this.memberLists.keys()) {
       if (providerOfThreadId(key) === provider) this.memberLists.delete(key);
     }
-    if (change.removed.length === 0 && !change.botRemoved) return;
+    const departed = change.removed.length > 0 || change.botRemoved;
+    if (!departed && change.added.length === 0) return;
     await this.sink?.({
       type: "message",
       provider,
@@ -461,7 +470,10 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       participants: [],
       content: "",
       mediaUrl: null,
-      departures: { addresses: change.removed, botLeft: change.botRemoved },
+      ...(departed
+        ? { departures: { addresses: change.removed, botLeft: change.botRemoved } }
+        : {}),
+      ...(change.added.length ? { arrivals: change.added } : {}),
     });
   }
 
@@ -600,7 +612,16 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     const transport = platform.transport?.(message.raw) ?? null;
     const attachments = inboundAttachments(message);
     const departures = isDirect ? undefined : platform.departures?.(message.raw);
-    const directoryUser = isDirect ? platform.directoryUser?.(message.raw) : undefined;
+    const directoryUser = platform.directoryUser?.(message.raw);
+    const content = [
+      plainTextWithLinks(message, platform.provider === "lark"),
+      ...(attachments.length
+        ? message.attachments.filter((file) => !file.fetchData && file.url).map((file) => file.url)
+        : []),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const contentWithoutMention = withoutMentions(content, platform.botMentions?.(message.raw));
     const base: MessagingInboundMessage = {
       type: "message",
       provider: platform.provider,
@@ -615,19 +636,12 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       fromLabel: fromLabel === message.author.userId ? null : fromLabel,
       channelName: isDirect ? null : (platform.channelName?.(message.raw) ?? null),
       participants: isDirect ? [] : (platform.participants?.(message.raw) ?? []),
-      content: [
-        plainTextWithLinks(message, platform.provider === "lark"),
-        ...(attachments.length
-          ? message.attachments
-              .filter((file) => !file.fetchData && file.url)
-              .map((file) => file.url)
-          : []),
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      content,
+      ...(contentWithoutMention === undefined ? {} : { contentWithoutMention }),
       mediaUrl: message.attachments.find((attachment) => attachment.url)?.url ?? null,
       ...(attachments.length ? { attachments } : {}),
       ...(!isDirect && message.isMention ? { mentionsBot: true } : {}),
+      ...(!isDirect && platform.groupMentionRequired ? { groupMentionRequired: true } : {}),
       ...(departures ? { departures } : {}),
       ...(directoryUser ? { directoryUser } : {}),
     };
@@ -819,6 +833,24 @@ function chatDedupeKey(adapter: Adapter, messageId: string): string {
   const key = `dedupe:${adapter.name}:${messageId}`;
   const scope = adapter.getConcurrencyScope?.();
   return scope === undefined ? key : `concurrency:${JSON.stringify([adapter.name, scope, key])}`;
+}
+
+/** Message text with the given @-mentions removed; undefined when none occur. */
+function withoutMentions(content: string, mentions: string[] | undefined): string | undefined {
+  const present = (mentions ?? []).filter((mention) => mention && content.includes(mention));
+  if (present.length === 0) return undefined;
+  return present
+    .reduce((text, mention) => text.split(mention).join(" "), content)
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/**
+ * The bot is no longer in the conversation, or the conversation no longer exists: nothing
+ * more can be read from or sent to it.
+ */
+export class MessagingConversationGoneError extends Error {
+  override readonly name = "MessagingConversationGoneError";
 }
 
 /**

@@ -65,6 +65,25 @@ Teams, so linked members are invited even before they speak, and someone who lea
 stops receiving the group's messages. If Teams can't return the member list, the bot passes the
 message to nobody.
 
+In a Teams group chat or channel the bot answers only messages that @mention it, even when the Teams
+app is set up to read every message.
+
+### A group chat of your own
+
+On Microsoft Teams you can also give one bot its own group chat, for example one chat per bot. Make
+a group chat with only you and the bot in it, then in **Settings → Messaging** pick the bot and
+choose **Microsoft Teams group chat** under **Connect a chat app**, and send the code in that chat
+within 10 minutes. It links only when you're signed in to the server with the same Microsoft account
+and nobody else is in the chat, so the code alone is useless to anyone else.
+
+The chat then works like a direct chat with that bot: it answers every message you send there, with
+or without an @mention, once the Teams app may read every message. Only your messages reach it. If
+anyone else is added or speaks there, or the bot can't confirm who is in the chat, it posts one
+notice and stops answering. Remove them and send `resume` to continue. Send `unlink`, or choose
+**Unlink** in settings, to end it; removing the bot from the chat ends it too. A bot linked to a
+direct chat can't also have a group chat, and each bot has at most one. Anyone added to a Teams
+group chat may be able to see its earlier messages, including the bot's replies.
+
 When someone in a group asks the bot to change something in one of your connected apps, you approve
 it in the app first. A server can instead keep group chats read-only with
 `RAKAZO_GROUP_RUNS_READ_ONLY=true`: the bot only reads connected apps there and asks people to

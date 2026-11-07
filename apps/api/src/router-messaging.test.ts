@@ -73,6 +73,7 @@ function messagingDeps(
   const defaultChannel = { id: "ch-1", provider: "sendblue", name: "Family", members: [] };
   const connectionState = connection ? { ...connection } : null;
   const prisma = {
+    messagingLine: { findFirst: vi.fn(async () => null) },
     messagingIdentity: {
       findFirst: vi.fn(async () => resolvedIdentity),
       findMany: vi.fn(
@@ -331,8 +332,40 @@ describe("messaging.status", () => {
             botName: "Assistant",
           },
         ],
+        lineProviders: [],
+        lines: [],
       },
     });
+  });
+
+  it("lists a group chat linked as a line apart from the linked chat apps", async () => {
+    const { handler, actor } = messagingDeps({
+      identities: [
+        {
+          id: "mi-line",
+          provider: "teams",
+          address: "29:owner#teams:chat",
+          botId: "bot-1",
+          line: { id: "line-1", name: "Chief only", suspendedAt: new Date() },
+        },
+      ],
+    });
+    const response = await call(handler, actor, "messaging/status");
+    const body = (await response.json()) as {
+      json: { identities: unknown[]; lines: unknown[] };
+    };
+    expect(body.json.identities).toEqual([]);
+    expect(body.json.lines).toEqual([
+      {
+        id: "line-1",
+        identityId: "mi-line",
+        provider: "teams",
+        name: "Chief only",
+        botId: "bot-1",
+        botName: "Assistant",
+        status: "paused",
+      },
+    ]);
   });
 
   it("reports no identities when the caller has not linked a chat app", async () => {
@@ -345,6 +378,8 @@ describe("messaging.status", () => {
         addresses: { sendblue: "+15550001111" },
         openSignup: false,
         identities: [],
+        lineProviders: [],
+        lines: [],
       },
     });
   });

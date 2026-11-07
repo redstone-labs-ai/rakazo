@@ -102,6 +102,7 @@ function createDeps(
     }),
   };
   const prisma = {
+    messagingLine: { findUnique: vi.fn(async () => null) },
     messagingIdentity: {
       findUnique: vi.fn(
         async ({
@@ -2610,6 +2611,14 @@ describe("createMessagingInboundHandler linking", () => {
     expect(deps.provision).not.toHaveBeenCalled();
     expect(deps.sendUserMessage).not.toHaveBeenCalled();
     expect(deps.outboundRows).toHaveLength(0);
+  });
+
+  it("never links a direct chat with a group chat's code", async () => {
+    const deps = createDeps({ identity: null, linkCode: { ...liveCode, forGroup: true } });
+    (deps as unknown as { openSignup: boolean }).openSignup = false;
+    await createMessagingInboundHandler(deps)({ ...dmEvent, content: "abcd-2345" });
+    expect(deps.createdIdentities).toEqual([]);
+    expect(deps.outboundRows).toEqual([]);
   });
 
   it("links an unknown sender via a valid code and confirms", async () => {

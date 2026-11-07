@@ -203,7 +203,7 @@ export function normalizeMessagingLinkCode(text: string): string | null {
  */
 export async function issueMessagingLinkCode(
   prisma: PrismaClient,
-  request: { userId: string; spaceId: string; botId: string },
+  request: { userId: string; spaceId: string; botId: string; forGroup?: boolean },
 ): Promise<{ code: string; expiresAt: Date }> {
   let code = "";
   for (let i = 0; i < LINK_CODE_LENGTH; i += 1) {
@@ -250,6 +250,8 @@ export async function redeemMessagingLinkCode(
   const row = await prisma.messagingLinkCode.findUnique({ where: { code: request.code } });
   if (
     !row ||
+    // A group chat's code binds only a group chat: it was shown where others may see it.
+    row.forGroup ||
     row.expiresAt.getTime() < Date.now() ||
     (request.spaceId && row.spaceId !== request.spaceId)
   )

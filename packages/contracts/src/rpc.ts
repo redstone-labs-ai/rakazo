@@ -1205,9 +1205,12 @@ export const appContract = {
     },
     status: oc.output(MessagingStatusSchema),
     link: {
-      /** Issue a short-lived code the user sends to the line from a chat app. */
+      /**
+       * Issue a short-lived code the user sends to the line from a chat app. A group chat's
+       * code links only a group chat where the user is alone with the bot.
+       */
       start: oc
-        .input(z.object({ botId: Id }))
+        .input(z.object({ botId: Id, forGroup: z.boolean().optional() }))
         .output(z.object({ code: z.string(), expiresAt: z.string() })),
     },
     identities: {

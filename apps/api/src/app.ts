@@ -886,6 +886,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         ),
       ),
       openSignup: env.messagingOpenSignup,
+      lineProviders: (messaging?.platforms() ?? [])
+        .filter((platform) => platform.capabilities.lines)
+        .map((platform) => platform.provider),
     },
     env: {
       phoneCallsEnabled: env.phoneCallsEnabled,
@@ -1165,6 +1168,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           { spaceId, userId },
           { audio, mimeType, signal },
         ),
+      messaging,
     } satisfies Parameters<typeof createMessagingInboundHandler>[0];
     const inbound = createMessagingInboundHandler(inboundDeps);
     const handleTeamChatInbound = async (

@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { messagingDeliverJob } from "@rakazo/adapter-kit";
+import { auditMessagingLine } from "@rakazo/adapters";
 import { displayName } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import {
@@ -49,6 +50,7 @@ export function messagingRoutes(ctx: RouterContext) {
         const identities = await acrossChatIdentities(() =>
           deps.prisma.messagingIdentity.findMany({
             where: { userId: context.actor.userId },
+            include: { line: true },
             orderBy: { createdAt: "asc" },
           }),
         );
@@ -58,7 +60,15 @@ export function messagingRoutes(ctx: RouterContext) {
           addresses: deps.messaging?.addresses ?? {},
           openSignup: deps.messaging?.openSignup ?? false,
           identities: await Promise.all(
-            identities.map((identity) => messagingIdentityDto(deps.prisma, identity)),
+            identities
+              .filter((identity) => !identity.line)
+              .map((identity) => messagingIdentityDto(deps.prisma, identity)),
+          ),
+          lineProviders: deps.messaging?.lineProviders ?? [],
+          lines: await Promise.all(
+            identities.flatMap((identity) =>
+              identity.line ? [messagingLineDto(deps.prisma, identity, identity.line)] : [],
+            ),
           ),
         };
       }),
@@ -95,6 +105,7 @@ export function messagingRoutes(ctx: RouterContext) {
             userId: context.actor.userId,
             spaceId: bot.spaceId,
             botId: bot.id,
+            forGroup: input.forGroup ?? false,
           });
           return {
             code: formatMessagingLinkCode(issued.code),
@@ -148,12 +159,24 @@ export function messagingRoutes(ctx: RouterContext) {
           }
         }),
         unlink: authed.messaging.identities.unlink.handler(async ({ context, input }) => {
+          const line = await acrossChatIdentities(() =>
+            deps.prisma.messagingLine.findFirst({
+              where: { identityId: input.identityId, identity: { userId: context.actor.userId } },
+              include: { identity: { select: { userId: true, spaceId: true, botId: true } } },
+            }),
+          );
           const { count } = await acrossChatIdentities(() =>
             deps.prisma.messagingIdentity.deleteMany({
               where: { id: input.identityId, userId: context.actor.userId },
             }),
           );
           if (count === 0) throw new ORPCError("NOT_FOUND");
+          if (line) {
+            await auditMessagingLine("messaging.line.unlinked", line, {
+              actor: "owner",
+              reason: "owner_web",
+            });
+          }
           return { ok: true as const };
         }),
       },
@@ -397,6 +420,23 @@ async function messagingIdentityDto(
     address: identity.address,
     botId: identity.botId,
     botName: bot?.name ?? "",
+  };
+}
+
+async function messagingLineDto(
+  prisma: PrismaClient,
+  identity: { id: string; provider: string; address: string; botId: string },
+  line: { id: string; name: string | null; suspendedAt: Date | null },
+) {
+  const { botName } = await messagingIdentityDto(prisma, identity);
+  return {
+    id: line.id,
+    identityId: identity.id,
+    provider: identity.provider,
+    name: line.name,
+    botId: identity.botId,
+    botName,
+    status: line.suspendedAt ? ("paused" as const) : ("active" as const),
   };
 }
 

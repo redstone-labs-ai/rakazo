@@ -150,6 +150,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr ""
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "{app} ग्रुप चैट"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {{name} और उसका # बॉट हटाएँ?} other {{name} और उसके # बॉट हटाएँ?}}"
@@ -3361,6 +3365,10 @@ msgstr ""
 msgid "Group"
 msgstr "समूह"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "ग्रुप चैट"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "समूह सेटिंग्स"
@@ -4881,6 +4889,7 @@ msgstr "अपनी API कुंजी पेस्ट करें"
 msgid "Paste your API key, then test again."
 msgstr "अपनी API कुंजी पेस्ट करें, फिर फिर से परीक्षण करें।"
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5772,6 +5781,10 @@ msgstr "भेजें"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr ""
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "<0>{linkCode}</0> को 10 मिनट के अंदर ऐसे {linkApp} ग्रुप चैट में भेजें जिसमें सिर्फ़ आप और बॉट हों।"
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."
