@@ -31,7 +31,6 @@ import {
   createThreadMessage,
   crossSpaceCommunicationAllowed,
   linkMessagingIdentityByDirectory,
-  messagingLineClientNonce,
   normalizeMessagingLinkCode,
   redeemMessagingLinkCode,
 } from "@rakazo/db";
@@ -299,6 +298,7 @@ async function deliverLineMessage(
   deps: MessagingInboundDeps,
   line: MessagingLineRow,
   event: MessagingInboundMessage,
+  clientNonce: string,
 ): Promise<void> {
   const identity = await deps.prisma.messagingIdentity.update({
     where: { id: line.identityId },
@@ -328,7 +328,7 @@ async function deliverLineMessage(
       created: false,
     },
     event,
-    messagingLineClientNonce(line.id, event.provider, event.handle),
+    clientNonce,
   );
 }
 
@@ -863,8 +863,8 @@ async function handleChannelEvent(
   // A line is its owner's own chat: no group discovery, invites or fan-out.
   const line = await findMessagingLine(deps.prisma, event.threadId);
   if (line) {
-    await handleMessagingLineEvent(deps, event, line, (current) =>
-      deliverLineMessage(deps, current, event),
+    await handleMessagingLineEvent(deps, event, line, (current, clientNonce) =>
+      deliverLineMessage(deps, current, event, clientNonce),
     );
     return;
   }

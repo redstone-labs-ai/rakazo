@@ -10,7 +10,11 @@ import {
 } from "@rakazo/adapters";
 import { sanitizeMessagingLabel } from "@rakazo/core";
 import type { Prisma, PrismaClient } from "@rakazo/db";
-import { bindMessagingLine, normalizeMessagingLinkCode } from "@rakazo/db";
+import {
+  bindMessagingLine,
+  messagingLineClientNonce,
+  normalizeMessagingLinkCode,
+} from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
 /**
@@ -50,13 +54,14 @@ export async function findMessagingLine(
  * Inbound on a line. Membership events pause it when someone is added and unbind it when the
  * bot is removed. Messages from anyone but the owner are dropped and pause it, since someone
  * else is evidently there. The owner's messages are checked against the member list before
- * they are delivered; `deliver` hands them to the bot like a direct message.
+ * they are delivered; `deliver` hands them to the bot like a direct message, keyed to the
+ * line so the run is the owner's only while the line stays bound and unpaused.
  */
 export async function handleMessagingLineEvent(
   deps: MessagingLineDeps,
   event: MessagingInboundMessage,
   line: MessagingLineRow,
-  deliver: (line: MessagingLineRow) => Promise<void>,
+  deliver: (line: MessagingLineRow, clientNonce: string) => Promise<void>,
 ): Promise<void> {
   if (event.departures?.botLeft) {
     await unbindMessagingLine(deps, line, "bot_removed");
@@ -100,7 +105,7 @@ export async function handleMessagingLineEvent(
   // A fresh group code from the owner re-points the line at another of their bots.
   if (normalizeMessagingLinkCode(text) && (await tryBindMessagingLine(deps, event))) return;
   if (!(await messagingLineAnswers({ ...deps, messaging: deps.messaging ?? {} }, line))) return;
-  await deliver(line);
+  await deliver(line, messagingLineClientNonce(line.id, event.provider, event.handle));
 }
 
 /**
