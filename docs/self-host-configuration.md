@@ -130,8 +130,11 @@ A list that does not parse, or an entry in it, is logged and ignored.
 The value is a JSON array, or an object with a `servers` array. Each entry has `slug`, `name`,
 `endpoint` and `transport` (`streamable_http` or `sse`), and optionally `description`,
 `oauthClient` (`clientId`, `scope`, `authorizationParams`; never a secret, which every person's
-copy would hold), `shareWithAllBots` (default `true`), `enabled` (`false` leaves the entry out)
-and `audience` (`roles`, `oidcRoles`).
+copy would hold), `shareWithAllBots` (default `true`), `enabled` (`false` leaves the entry out),
+`audience` (`roles`, `oidcRoles`) and `alwaysAllowTools`. `alwaysAllowTools` lists tool names
+on the server (as it lists them, such as `search`) that start as "Always allow" for the person.
+The rule is saved once, when the server is added, so a person who changes it keeps their choice.
+List only tools that cannot change anything.
 
 ```sh
 RAKAZO_DEFAULT_MCP_SERVERS='[{"slug":"docs","name":"Docs","transport":"streamable_http","endpoint":"https://mcp.example.com/mcp"},{"slug":"deals","name":"Deals","transport":"streamable_http","endpoint":"https://deals.example.com/mcp","audience":{"oidcRoles":["Investments"]}}]'

@@ -43,6 +43,16 @@ describe("defaultMcpServersFromEnv", () => {
     expect(server?.audience).toEqual({ roles: ["admin"], oidcRoles: ["Investments"] });
   });
 
+  it("keeps the tools a server starts with as always allowed", () => {
+    const [server] = defaultMcpServersFromEnv(
+      JSON.stringify([{ ...docs, alwaysAllowTools: ["schema", "query", "schema"] }]),
+    );
+    expect(server?.alwaysAllowTools).toEqual(["schema", "query"]);
+    expect(defaultMcpServersFromEnv(JSON.stringify([docs]))[0]).not.toHaveProperty(
+      "alwaysAllowTools",
+    );
+  });
+
   it("logs and leaves out what does not parse", () => {
     const warn = vi.fn();
     const servers = defaultMcpServersFromEnv(
@@ -53,12 +63,14 @@ describe("defaultMcpServersFromEnv", () => {
         { ...docs, slug: "local", transport: "stdio", command: "run" },
         { ...docs, slug: "aud", audience: { roles: "admin" } },
         { ...docs, slug: "off", enabled: false },
+        { ...docs, slug: "allow", alwaysAllowTools: "schema" },
+        { ...docs, slug: "allow2", alwaysAllowTools: ["mcp__other__send"] },
         "not an object",
       ]),
       warn,
     );
     expect(servers.map((server) => server.input.slug)).toEqual(["docs"]);
-    expect(warn).toHaveBeenCalledTimes(5);
+    expect(warn).toHaveBeenCalledTimes(7);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("duplicate slug docs"));
     expect(defaultMcpServersFromEnv("{", warn)).toEqual([]);
     expect(defaultMcpServersFromEnv('"text"', warn)).toEqual([]);

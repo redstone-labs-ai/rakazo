@@ -21,6 +21,7 @@ dbTests("default MCP servers", () => {
         name: "Docs",
         transport: "streamable_http",
         endpoint: "https://mcp.example.test/mcp",
+        alwaysAllowTools: ["schema", "query"],
       },
       {
         slug: "deals",
@@ -123,5 +124,23 @@ dbTests("default MCP servers", () => {
     const results = await Promise.all([provision(userId), provision(userId), provision(userId)]);
     expect(results.flat()).toEqual(["docs"]);
     expect(await prisma.mcpServer.count({ where: { userId } })).toBe(1);
+  });
+
+  it("starts the server's listed tools as always allowed, only when it is added", async () => {
+    const { userId } = await newUser();
+    await provision(userId);
+    const rules = () =>
+      prisma.userActionApprovalRule.findMany({
+        where: { userId },
+        select: { effect: true, matchKind: true, matchValue: true },
+        orderBy: { matchValue: "asc" },
+      });
+    expect(await rules()).toEqual([
+      { effect: "always_allow", matchKind: "tool", matchValue: "mcp__docs__query" },
+      { effect: "always_allow", matchKind: "tool", matchValue: "mcp__docs__schema" },
+    ]);
+    await prisma.userActionApprovalRule.deleteMany({ where: { userId } });
+    await provision(userId);
+    expect(await rules()).toEqual([]);
   });
 });
