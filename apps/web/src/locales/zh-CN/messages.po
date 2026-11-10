@@ -150,6 +150,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr "{amount} / {period}"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "{app} 群聊"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, other {删除 {name} 及其 # 个机器人？}}"
@@ -3361,6 +3365,10 @@ msgstr ""
 msgid "Group"
 msgstr "群组"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "群聊"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "群组设置"
@@ -4881,6 +4889,7 @@ msgstr "粘贴你的 API 密钥"
 msgid "Paste your API key, then test again."
 msgstr "请粘贴你的 API 密钥，然后重新测试。"
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5772,6 +5781,10 @@ msgstr "发送"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr "请在 10 分钟内从 {linkApp} 发送 <0>{linkCode}</0>。"
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "请在 10 分钟内，在只有你和机器人的 {linkApp} 群聊中发送 <0>{linkCode}</0>。"
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."

@@ -885,6 +885,11 @@ export interface MessagingCapabilities {
   receipt: MessagingReceipt | null;
   /** Sends image and file attachments. Absent means replies go out as text only. */
   files?: boolean;
+  /**
+   * A group conversation can be bound to one bot as its owner's own chat: the platform lists
+   * members and verifies senders' directory accounts.
+   */
+  lines?: boolean;
 }
 
 /** One messaging platform behind the chat surface (sendblue, slack, …). */
@@ -950,12 +955,21 @@ export interface MessagingInboundMessage {
    * nothing more can be delivered to that channel.
    */
   departures?: { addresses: string[]; botLeft: boolean };
+  /** Members a platform event reports as added to the group; such an event carries no message. */
+  arrivals?: string[];
   content: string;
   mediaUrl: string | null;
   /** Files the platform only serves to the bot's credentials (Slack url_private, …). */
   attachments?: MessagingInboundAttachment[];
   /** The platform reports that this group message @-mentions the bot. */
   mentionsBot?: boolean;
+  /**
+   * The platform can deliver every group message, but only those that @-mention the bot are
+   * addressed to it.
+   */
+  groupMentionRequired?: boolean;
+  /** `content` without the platform's @-mentions of the bot, when it had any. */
+  contentWithoutMention?: string;
   /** Team-room workspace/team id when the platform reports one (Slack team_id, …). */
   workspaceId?: string;
   /** Trusted installation owner, attached only after webhook verification. */

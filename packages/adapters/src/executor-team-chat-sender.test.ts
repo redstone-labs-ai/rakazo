@@ -24,6 +24,8 @@ async function teamChatRun(input: {
   ownerAddress?: string | null;
   linkedAddresses?: string[];
   sharedChannel?: boolean;
+  /** The run was woken by an owner's message on a line in this state. */
+  line?: "active" | "paused" | "unbound";
 }) {
   const [waking, ...batched] = input.senders.map((sender, index) => ({
     id: `external-${index}`,
@@ -86,7 +88,7 @@ async function teamChatRun(input: {
       findUniqueOrThrow: vi.fn(async () => ({
         id: run.threadId,
         groupId: null,
-        externalConversationId: "conversation-1",
+        externalConversationId: input.line ? null : "conversation-1",
       })),
       update: vi.fn(async () => ({ nextMessageSeq: 2, nextEventSeq: 2 })),
     },
@@ -97,7 +99,9 @@ async function teamChatRun(input: {
         blocks: input.sharedChannel
           ? [{ kind: "channel_message", channelId: "channel-1" }]
           : [{ kind: "text", text: "Slack message from Pat:\n\nWhat do you remember?" }],
-        clientNonce: `teamchat:slack:${waking.providerEventId}`,
+        clientNonce: input.line
+          ? "messaging-line:line-1:teams:h-1"
+          : `teamchat:slack:${waking.providerEventId}`,
       })),
       create: vi.fn(async ({ data }: { data: object }) => ({ id: "message-1", ...data })),
     },
@@ -197,6 +201,13 @@ async function teamChatRun(input: {
       ),
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         externalMessages.filter((message) => where.id.in.includes(message.id)),
+      ),
+    },
+    messagingLine: {
+      findUnique: vi.fn(async () =>
+        input.line === "unbound" || !input.line
+          ? null
+          : { suspendedAt: input.line === "paused" ? new Date() : null },
       ),
     },
     messagingInstallation: {
@@ -322,4 +333,22 @@ describe("private skills in shared-channel prompts", () => {
     expect(result.context).toContain("PRIVATE_SKILL_BODY");
     expect(result.context).toContain("PRIVATE_TAUGHT_HINT");
   });
+});
+
+describe("runs woken on a line", () => {
+  it("keep full owner context while the line is bound and not paused", async () => {
+    const result = await teamChatRun({ senders: [{ senderId: "29:owner" }], line: "active" });
+    expect(result.sawOwnerState).toBe(true);
+    for (const tool of ownerOnlyTools) expect(result.tools).toContain(tool);
+  });
+
+  it.each(["paused", "unbound"] as const)(
+    "run with a group chat's limits once the line is %s",
+    async (line) => {
+      const result = await teamChatRun({ senders: [{ senderId: "29:owner" }], line });
+      expect(result.sawOwnerState).toBe(false);
+      expect(result.toldNonOwner).toBe(true);
+      for (const tool of ownerOnlyTools) expect(result.tools).not.toContain(tool);
+    },
+  );
 });

@@ -19,6 +19,7 @@ import {
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import { MessagingSendError } from "./chat-sdk-surface.js";
+import { messagingLineAnswers } from "./messaging-lines.js";
 import { splitOutboundBody } from "./messaging-platforms.js";
 
 /**
@@ -628,6 +629,19 @@ async function deliverRow(
       : null;
     if (!identity) {
       await deps.prisma.messagingOutbound.update({
+        where: { id: row.id },
+        data: { status: "failed" },
+      });
+      return true;
+    }
+    // A line replies only while its owner is alone with the bot; otherwise it pauses with one
+    // notice, and the reply is dropped rather than held for later.
+    const line = await deps.prisma.messagingLine.findUnique({
+      where: { identityId: identity.id },
+      include: { identity: { select: { userId: true, spaceId: true, botId: true } } },
+    });
+    if (line && !(await messagingLineAnswers(deps, line))) {
+      await deps.prisma.messagingOutbound.updateMany({
         where: { id: row.id },
         data: { status: "failed" },
       });

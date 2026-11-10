@@ -151,6 +151,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr "{amount} / {period}"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "{app} 群組聊天"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {要刪除 {name} 及其 # 個機器人嗎？} other {要刪除 {name} 及其 # 個機器人嗎？}}"
@@ -3362,6 +3366,10 @@ msgstr ""
 msgid "Group"
 msgstr "群組"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "群組聊天"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "群組設定"
@@ -4882,6 +4890,7 @@ msgstr "貼上你的 API 金鑰"
 msgid "Paste your API key, then test again."
 msgstr "請貼上你的 API 金鑰，然後重新測試。"
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5773,6 +5782,10 @@ msgstr "傳送"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr "請在 10 分鐘內從 {linkApp} 傳送 <0>{linkCode}</0>。"
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "請在 10 分鐘內，在只有你和機器人的 {linkApp} 群組聊天中傳送 <0>{linkCode}</0>。"
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."

@@ -150,6 +150,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr "{amount} / {period}"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "צ'אט קבוצתי ב-{app}"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {למחוק את {name} ואת הבוט שלו?} other {למחוק את {name} ואת # הבוטים שלו?}}"
@@ -3361,6 +3365,10 @@ msgstr ""
 msgid "Group"
 msgstr "קבוצה"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "צ'אט קבוצתי"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "הגדרות קבוצה"
@@ -4881,6 +4889,7 @@ msgstr "יש להדביק את מפתח ה-API"
 msgid "Paste your API key, then test again."
 msgstr "יש להדביק את מפתח ה-API ולבדוק שוב."
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5772,6 +5781,10 @@ msgstr "שליחה"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr ""
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "שלחו את <0>{linkCode}</0> בצ'אט קבוצתי ב-{linkApp} שיש בו רק אתם והבוט, תוך 10 דקות."
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."

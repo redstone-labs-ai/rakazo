@@ -150,6 +150,10 @@ msgstr "{0} TB"
 msgid "{amount} / {period}"
 msgstr ""
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "{app} group chat"
+msgstr "{app} 그룹 채팅"
+
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, other {{name}과(와) 봇 #개를 삭제할까요?}}"
@@ -3361,6 +3365,10 @@ msgstr ""
 msgid "Group"
 msgstr "그룹"
 
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Group chat"
+msgstr "그룹 채팅"
+
 #: src/pages/GroupPanel.tsx
 msgid "Group settings"
 msgstr "그룹 설정"
@@ -4881,6 +4889,7 @@ msgstr "API 키를 붙여넣으세요"
 msgid "Paste your API key, then test again."
 msgstr "API 키를 붙여넣은 뒤 다시 테스트하세요."
 
+#: src/pages/MessagingSettingsPanel.tsx
 #: src/pages/RoutineEditor.tsx
 #: src/pages/shell/import-status.ts
 msgid "Paused"
@@ -5772,6 +5781,10 @@ msgstr "보내기"
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> from {linkApp} within 10 minutes."
 msgstr ""
+
+#: src/pages/MessagingSettingsPanel.tsx
+msgid "Send <0>{linkCode}</0> in a {linkApp} group chat with only you and the bot, within 10 minutes."
+msgstr "나와 봇만 있는 {linkApp} 그룹 채팅에서 10분 안에 <0>{linkCode}</0>을(를) 보내세요."
 
 #: src/pages/MessagingSettingsPanel.tsx
 msgid "Send <0>{linkCode}</0> to <1>{linkAddress}</1> from {linkApp} within 10 minutes."

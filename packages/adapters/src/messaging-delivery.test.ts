@@ -145,6 +145,7 @@ function createDeps(overrides: {
           ],
       ),
     },
+    messagingLine: { findUnique: vi.fn(async () => null) },
     messagingIdentity: {
       findUnique: vi.fn(async () => identityRow),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -826,6 +827,7 @@ function createChannelDeps(
       ),
       findUnique: vi.fn(async () => null),
     },
+    messagingLine: { findUnique: vi.fn(async () => null) },
     messagingIdentity: {
       findUnique: vi.fn(async ({ where }: { where: { botId?: string; id?: string } }) => {
         if (where.botId === "bot-1" || where.id === "mi-1") return posterIdentity;
@@ -2132,6 +2134,65 @@ describe("drain lanes", () => {
     expect(deps.sendToThread).toHaveBeenCalledExactlyOnceWith(
       { threadId: "t-other", body: "later" },
       context,
+    );
+  });
+});
+
+describe("line replies", () => {
+  function lineDeps(members: string[] | Error) {
+    const deps = createDeps({
+      identity: { provider: "teams", address: "29:owner#teams:chat", dmThreadId: "teams:chat" },
+    });
+    const line = {
+      id: "line-1",
+      identityId: identity.id,
+      provider: "teams",
+      threadId: "teams:chat",
+      ownerAddress: "29:owner",
+      suspendedAt: null as Date | null,
+      identity: { userId: "user-1", spaceId: "ws-1", botId: "bot-1" },
+    };
+    deps.prisma.messagingLine.findUnique.mockResolvedValue(
+      line as unknown as Awaited<ReturnType<typeof deps.prisma.messagingLine.findUnique>>,
+    );
+    const updateMany = vi.fn(async () => {
+      const paused = line.suspendedAt === null;
+      line.suspendedAt ??= new Date();
+      return { count: paused ? 1 : 0 };
+    });
+    Object.assign(deps.prisma, { messagingLine: { ...deps.prisma.messagingLine, updateMany } });
+    deps.messaging.conversationMembers = vi.fn(async () => {
+      if (members instanceof Error) throw members;
+      return members;
+    });
+    return { deps, line };
+  }
+
+  it("sends a line's reply while its owner is alone with the bot", async () => {
+    const { deps } = lineDeps(["29:owner"]);
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+    expect(deps.sendToThread).toHaveBeenCalledWith(
+      { threadId: "teams:chat", body: "Hello from your bot" },
+      context,
+    );
+  });
+
+  it("drops the reply and posts only the pause notice once someone else is in the chat", async () => {
+    const { deps, line } = lineDeps(["29:owner", "29:grace"]);
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(line.suspendedAt).toBeInstanceOf(Date);
+    expect(deps.rows.find((row) => row.idempotencyKey === "msg:m-1")?.status).toBe("failed");
+    expect(deps.sendToThread).not.toHaveBeenCalledWith(
+      expect.objectContaining({ body: "Hello from your bot" }),
+      expect.anything(),
+    );
+    expect(deps.rows).toContainEqual(
+      expect.objectContaining({
+        kind: "group",
+        threadId: "teams:chat",
+        body: expect.stringMatching(/^Paused\./),
+      }),
     );
   });
 });
