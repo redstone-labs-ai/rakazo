@@ -939,6 +939,11 @@ export interface MessagingInboundMessage {
   /** Group roster addresses when the platform reports them; often empty. */
   participants: string[];
   /**
+   * The platform keeps a member list for this group but it could not be read, so nobody's
+   * membership is confirmed for this message.
+   */
+  participantsUnavailable?: boolean;
+  /**
    * Member departures this event reports one at a time (Telegram service
    * messages on a platform that sends no roster): addresses that left or were
    * removed, plus our own bot leaving, which ends every membership because
