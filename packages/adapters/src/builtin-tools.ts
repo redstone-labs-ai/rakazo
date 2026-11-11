@@ -1771,7 +1771,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "teams_create_group_chat",
     description:
-      "Create a Microsoft Teams group chat as your own Teams bot, add the given people, and post a first message. Only when the user asks for a new Teams chat. Needs the user's approval.",
+      "Create a Microsoft Teams group chat as your own Teams bot, add the given people and, optionally, other agents' bots, and post a first message. Only when the user asks for a new Teams chat. Needs the user's approval.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1782,6 +1782,13 @@ export const builtinAgentTools: ConnectorTool[] = [
         },
         topic: { type: "string", maxLength: 250, description: "Chat title." },
         message: { type: "string", maxLength: 4000, description: "First message the bot posts." },
+        bots: {
+          type: "array",
+          maxItems: 10,
+          items: { type: "string" },
+          description:
+            "Agent ids of other agents whose own Teams bots join the chat. Each bot answers only its own @mention.",
+        },
       },
       required: ["members", "message"],
       additionalProperties: false,

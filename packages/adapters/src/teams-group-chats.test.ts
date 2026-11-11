@@ -129,6 +129,47 @@ describe("TeamsGroupChats", () => {
     );
   });
 
+  it("adds other agents' bots, each installing its own app with its own token", async () => {
+    const fake = fakeMicrosoft();
+    const created = await service(fake).create({ ...input("alpha"), bots: ["beta", "beta"] });
+    expect(created.bots).toEqual([{ agentId: "beta", installed: true }]);
+    const installs = fake.calls.filter((call) => call.url.endsWith("/installedApps"));
+    expect(
+      installs.map((call) => [call.token, JSON.parse(call.body)["teamsApp@odata.bind"]]),
+    ).toEqual([
+      [`tok:${ALPHA_APP}:https://graph.microsoft.com/.default`, expect.stringMatching(/\/cat-a$/)],
+      [`tok:${BETA_APP}:https://graph.microsoft.com/.default`, expect.stringMatching(/\/cat-b$/)],
+    ]);
+    // Only the creating bot posts the first message.
+    expect(tokensOf(fake.calls, "/activities")).toEqual([
+      `tok:${ALPHA_APP}:https://api.botframework.com/.default`,
+    ]);
+  });
+
+  it("reports a bot that cannot join without failing the chat", async () => {
+    const fake = fakeMicrosoft();
+    const chats = service(fake, {
+      agents: new Map([
+        ["alpha", { appId: ALPHA_APP, appPassword: `secret-${ALPHA_APP}`, catalogAppId: "cat-a" }],
+        ["beta", { appId: BETA_APP, appPassword: "wrong", catalogAppId: "cat-b" }],
+        ["gamma", { appId: "cccccccc-0000-0000-0000-000000000003", appPassword: "x" }],
+      ]),
+    });
+    const created = await chats.create({
+      ...input("alpha"),
+      bots: ["alpha", "beta", "gamma", "nobody"],
+    });
+    expect(created.installed).toBe(true);
+    expect(created.messageId).toBeDefined();
+    expect(created.bots.map((join) => [join.agentId, join.installed])).toEqual([
+      ["alpha", false],
+      ["beta", false],
+      ["gamma", false],
+      ["nobody", false],
+    ]);
+    expect(created.bots[1]?.error).toContain("invalid_client");
+  });
+
   it("falls back to the shared bot for an agent without its own", async () => {
     const fake = fakeMicrosoft();
     const created = await service(fake).create(input("gamma"));
