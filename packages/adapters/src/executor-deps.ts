@@ -21,6 +21,7 @@ import type { CloudAgentConnection } from "./cloud-agent-factory.js";
 import type { MemoryProviderResolver } from "./memory-provider-factory.js";
 import type { CodexLiveCatalog } from "./pi-codex-catalog.js";
 import type { RemoteTransportDependencies } from "./remote-mcp.js";
+import type { TeamsGroupChats } from "./teams-group-chats.js";
 import type { TicketChangeNotifier } from "./ticket-changes.js";
 import type { UserDeviceGateway } from "./user-device-protocol.js";
 
@@ -60,6 +61,8 @@ export interface ExecutorDeps {
   groupRunsReadOnly?: boolean;
   /** The name bots call the product in their prompts (RAKAZO_PRODUCT_NAME). Default "Rakazo". */
   productName?: string;
+  /** Creates Teams group chats as each agent's own bot. Absent hides teams_create_group_chat. */
+  teamsGroupChats?: TeamsGroupChats;
   phoneCallsEnabled?: boolean;
   phoneCallCooldownMinutes?: number;
   phoneCallRingSeconds?: number;

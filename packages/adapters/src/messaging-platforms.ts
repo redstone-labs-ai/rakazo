@@ -24,7 +24,8 @@ import { boundInboundMarkdown } from "./chat-sdk-surface.js";
 import { LazyLarkAdapter } from "./lark/lazy-adapter.js";
 import { Domain } from "./lark/thread-id.js";
 import { LazyPhotonAdapter } from "./photon/lazy-adapter.js";
-import { teamsPlatform } from "./teams-messaging.js";
+import type { TeamsAgentBot } from "./teams-messaging.js";
+import { teamsAgentBotsFromEnv, teamsPlatforms } from "./teams-messaging.js";
 import { isVitestRuntime } from "./test-runtime.js";
 
 /**
@@ -61,6 +62,8 @@ export interface MessagingEnvironmentValues {
   teamsAppId?: string | undefined;
   teamsAppPassword?: string | undefined;
   teamsAppTenantId?: string | undefined;
+  /** Agents with their own Teams bot (TEAMS_AGENT_BOTS). The rest use the shared bot. */
+  teamsAgentBots?: TeamsAgentBot[] | undefined;
 }
 
 export function messagingEnvFromProcess(
@@ -96,6 +99,7 @@ export function messagingEnvFromProcess(
     teamsAppId: clean(env.TEAMS_APP_ID),
     teamsAppPassword: clean(env.TEAMS_APP_PASSWORD),
     teamsAppTenantId: clean(env.TEAMS_APP_TENANT_ID),
+    teamsAgentBots: teamsAgentBotsFromEnv(env),
   };
 }
 
@@ -385,8 +389,7 @@ export function messagingPlatformsFromEnv(
     });
   }
 
-  const teams = teamsPlatform(env);
-  if (teams) platforms.push(teams);
+  platforms.push(...teamsPlatforms(env));
 
   return platforms;
 }

@@ -201,6 +201,15 @@ export { SupermemoryMemoryProvider } from "./supermemory-memory-provider.js";
 export * from "./task-catalog.js";
 export * from "./teaching-session.js";
 export * from "./team-chat-messaging.js";
+export * from "./teams-group-chats.js";
+export {
+  SHARED_TEAMS_BOT_APP_ID,
+  type TeamsAgentBot,
+  teamsAgentBotsFromEnv,
+  teamsAgentProvider,
+  teamsConversationIdOfThread,
+  teamsProviderForAgent,
+} from "./teams-messaging.js";
 export * from "./third-party-connector-emulator.js";
 export * from "./ticket-changes.js";
 export * from "./ticket-tools.js";

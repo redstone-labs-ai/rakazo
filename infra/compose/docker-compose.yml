@@ -271,6 +271,12 @@ x-app-environment: &app-environment
   TEAMS_APP_ID:
   TEAMS_APP_PASSWORD:
   TEAMS_APP_TENANT_ID:
+  TEAMS_AGENT_BOTS:
+  TEAMS_APP_CATALOG_ID:
+  TEAMS_RSC_CONSENT_ENABLED:
+  TEAMS_RSC_PERMISSIONS:
+  TEAMS_SERVICE_URL:
+  RAKAZO_TEAMS_GROUP_CHATS:
   # Optional egress proxy (Mainland / corporate). Empty = unset; either case works.
   HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
   HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
@@ -396,6 +402,8 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT:
       BETTER_AUTH_SECRET:
+      MANAGEBOT_INTERNAL_TOKEN:
+      MANAGEBOT_TEAMS_LISTENING_URL:
       BETTER_AUTH_URL:
       WEB_ORIGIN:
       AUTH_PASSWORD_ENABLED: ${AUTH_PASSWORD_ENABLED:-true}

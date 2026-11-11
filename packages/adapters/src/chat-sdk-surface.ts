@@ -115,6 +115,18 @@ export interface MessagingPlatform {
    * consent), but only messages that @-mention the bot are addressed to it.
    */
   groupMentionRequired?: boolean;
+  /**
+   * The one Rakazo agent this provider serves (an agent's own Teams bot). Inbound events carry
+   * it, so only that agent runs.
+   */
+  agentId?: string;
+  /** The key this platform's webhooks are routed by (a Teams bot app id). */
+  routeKey?: string;
+  /**
+   * The route key a raw webhook payload is addressed to. A payload that names another mounted
+   * platform's key goes to that platform instead, so one webhook URL can serve many bots.
+   */
+  webhookRouteKey?: (payload: unknown) => string | undefined;
   /** How the raw message's @-mentions of our bot read in its text ("@Rakazo"). */
   botMentions?: (raw: unknown) => string[];
   /**
@@ -289,6 +301,26 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
   handleWebhook(provider: string, request: Request): Promise<Response> | null {
     const mounted = this.byProvider.get(provider);
     if (!mounted) return null;
+    if (!mounted.platform.webhookRouteKey) return this.dispatchWebhook(mounted, request);
+    return this.routeWebhook(mounted, request);
+  }
+
+  /** Sends a webhook to the mounted platform whose route key the payload names. */
+  private async routeWebhook(mounted: MountedPlatform, request: Request): Promise<Response> {
+    const declared = Number(request.headers.get("content-length") ?? 0);
+    if (declared > MESSAGING_WEBHOOK_MAX_BODY_BYTES) {
+      return new Response("Payload too large", { status: 413 });
+    }
+    const body = await readBoundedText(request.clone(), MESSAGING_WEBHOOK_MAX_BODY_BYTES);
+    if (body === null) return new Response("Payload too large", { status: 413 });
+    const key = mounted.platform.webhookRouteKey?.(parseJson(body));
+    if (key && key !== mounted.platform.routeKey) {
+      for (const other of this.byProvider.values()) {
+        if (other.adapterName === mounted.adapterName && other.platform.routeKey === key) {
+          return this.dispatchWebhook(other, request);
+        }
+      }
+    }
     return this.dispatchWebhook(mounted, request);
   }
 
@@ -642,6 +674,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       ...(attachments.length ? { attachments } : {}),
       ...(!isDirect && message.isMention ? { mentionsBot: true } : {}),
       ...(!isDirect && platform.groupMentionRequired ? { groupMentionRequired: true } : {}),
+      ...(platform.agentId ? { agentId: platform.agentId } : {}),
       ...(departures ? { departures } : {}),
       ...(directoryUser ? { directoryUser } : {}),
     };

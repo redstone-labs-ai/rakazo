@@ -21,6 +21,111 @@ export interface TeamsCredentials {
   tenantId: string;
 }
 
+/** The shared Teams bot (Managebot). Agents without their own registration use it. */
+export const SHARED_TEAMS_BOT_APP_ID = "8ccaca5c-5964-4594-b8c8-01d6c27e7ef8";
+
+/**
+ * One agent's own Teams bot registration. The password is not in config: `passwordEnv`
+ * names the environment variable that holds it.
+ */
+export interface TeamsAgentBot {
+  agentId: string;
+  appId: string;
+  appPassword: string;
+}
+
+/** The provider id of an agent's own Teams bot. It also names its webhook route. */
+export function teamsAgentProvider(agentId: string): string {
+  return `teams-${agentId.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+}
+
+/**
+ * Agent Teams bots from TEAMS_AGENT_BOTS, a JSON map from Rakazo agent id to
+ * `{ "appId": "...", "passwordEnv": "TEAMS_APP_PASSWORD_X" }`. An entry without an app id,
+ * or whose password variable is empty, is skipped. That agent then uses the shared bot.
+ */
+export function teamsAgentBotsFromEnv(env: Record<string, string | undefined>): TeamsAgentBot[] {
+  const raw = env.TEAMS_AGENT_BOTS?.trim();
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    getLogger().warn("TEAMS_AGENT_BOTS is not valid JSON; no agent Teams bots mounted");
+    return [];
+  }
+  const bots: TeamsAgentBot[] = [];
+  for (const [agentId, value] of Object.entries(asRecord(parsed) ?? {})) {
+    const entry = asRecord(value);
+    const appId = typeof entry?.appId === "string" ? entry.appId.trim().toLowerCase() : "";
+    const passwordEnv = typeof entry?.passwordEnv === "string" ? entry.passwordEnv.trim() : "";
+    const appPassword = passwordEnv ? env[passwordEnv]?.trim() : undefined;
+    if (!agentId || !appId || !appPassword) {
+      getLogger().warn("skipping agent Teams bot with no app id or password", { agentId });
+      continue;
+    }
+    bots.push({ agentId, appId, appPassword });
+  }
+  return bots;
+}
+
+/**
+ * The Teams provider an agent sends and creates chats with: its own bot when it has one,
+ * else the shared bot (`teams`).
+ */
+export function teamsProviderForAgent(agentId: string, bots: TeamsAgentBot[]): string {
+  return bots.some((bot) => bot.agentId === agentId) ? teamsAgentProvider(agentId) : "teams";
+}
+
+/** The bot app id an activity was sent to (`recipient.id` is `28:<appId>`), lowercased. */
+export function teamsRecipientAppId(activity: unknown): string | undefined {
+  const id = asRecord(asRecord(activity)?.recipient)?.id;
+  if (typeof id !== "string" || !id) return undefined;
+  return id.slice(id.indexOf(":") + 1).toLowerCase();
+}
+
+/** The Teams conversation id inside a Rakazo Teams thread id. */
+export function teamsConversationIdOfThread(threadId: string): string | undefined {
+  const encoded = threadId.split(":")[1];
+  if (!encoded) return undefined;
+  const id = Buffer.from(encoded, "base64url").toString("utf8");
+  return id || undefined;
+}
+
+/**
+ * Every Teams bot this process hosts: the shared bot from TEAMS_APP_ID, then one provider for
+ * each agent's own bot. All bots use the same tenant.
+ */
+export function teamsPlatforms(credentials: {
+  teamsAppId?: string | undefined;
+  teamsAppPassword?: string | undefined;
+  teamsAppTenantId?: string | undefined;
+  teamsAgentBots?: TeamsAgentBot[] | undefined;
+}): MessagingPlatform[] {
+  const platforms: MessagingPlatform[] = [];
+  const shared = teamsPlatform(credentials);
+  if (shared) platforms.push(shared);
+  const tenant = credentials.teamsAppTenantId;
+  if (!tenant) return platforms;
+  const appIds = new Set(platforms.map((platform) => platform.routeKey));
+  for (const bot of credentials.teamsAgentBots ?? []) {
+    // Two providers on one bot would both answer its activities.
+    if (appIds.has(bot.appId)) {
+      getLogger().warn("skipping agent Teams bot that reuses another bot's app id", {
+        agentId: bot.agentId,
+      });
+      continue;
+    }
+    appIds.add(bot.appId);
+    const platform = teamsPlatform(
+      { teamsAppId: bot.appId, teamsAppPassword: bot.appPassword, teamsAppTenantId: tenant },
+      { provider: teamsAgentProvider(bot.agentId), agentId: bot.agentId },
+    );
+    if (platform) platforms.push(platform);
+  }
+  return platforms;
+}
+
 /**
  * Microsoft Teams, mounted when the app id, password and tenant are all set.
  * Groups and channels use personal group linking, like iMessage and Telegram.
@@ -29,11 +134,14 @@ export interface TeamsCredentials {
  * manifest grants the ChatMessage.Read.Chat and ChannelMessage.Read.Group
  * resource-specific permissions.
  */
-export function teamsPlatform(credentials: {
-  teamsAppId?: string | undefined;
-  teamsAppPassword?: string | undefined;
-  teamsAppTenantId?: string | undefined;
-}): MessagingPlatform | undefined {
+export function teamsPlatform(
+  credentials: {
+    teamsAppId?: string | undefined;
+    teamsAppPassword?: string | undefined;
+    teamsAppTenantId?: string | undefined;
+  },
+  options: { provider?: string; agentId?: string } = {},
+): MessagingPlatform | undefined {
   const { teamsAppId, teamsAppPassword, teamsAppTenantId } = credentials;
   if (!teamsAppId || !teamsAppPassword || !teamsAppTenantId) return undefined;
   const adapter = new LazyTeamsAdapter({
@@ -41,19 +149,34 @@ export function teamsPlatform(credentials: {
     appPassword: teamsAppPassword,
     tenantId: teamsAppTenantId,
   });
+  const provider = options.provider ?? "teams";
   return {
-    provider: "teams",
+    provider,
+    ...(provider === "teams" ? {} : { adapterName: "teams" }),
+    ...(options.agentId ? { agentId: options.agentId } : {}),
+    // Activities reach the bot they were sent to, whichever Teams route took them.
+    routeKey: teamsAppId.toLowerCase(),
+    webhookRouteKey: teamsRecipientAppId,
     capabilities: { direct: true, groups: true, receipt: "typing", files: true, lines: true },
     adapter,
     members: (threadId) => adapter.listMembers(threadId),
     membershipChanges: (raw) => adapter.membershipChange(raw),
     groupMentionRequired: true,
+    // A group message from any bot never starts a run. This stops agent bots from replying
+    // to each other in a loop.
+    acceptsGroup: (raw) => !isTeamsBotSender(raw),
     botMentions: (raw) => adapter.botMentions(raw),
     channelName: teamsChannelName,
     normalizeThreadId: teamsChannelThreadId,
     isPermanentSendError: isTeamsUnreachable,
     directoryUser: teamsDirectoryUser,
   };
+}
+
+/** True when a bot sent the activity. Bot Framework gives bot senders a `28:` id. */
+export function isTeamsBotSender(activity: unknown): boolean {
+  const id = asRecord(asRecord(activity)?.from)?.id;
+  return typeof id === "string" && id.startsWith("28:");
 }
 
 /**
