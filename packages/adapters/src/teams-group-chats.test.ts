@@ -36,7 +36,7 @@ function fakeMicrosoft(
     calls.push({ url, body, ...(auth ? { token: auth.replace(/^Bearer /, "") } : {}) });
     // Yield, so concurrent creates interleave.
     await new Promise((resolve) => setTimeout(resolve, Math.random() * 5));
-    if (url.includes("login.microsoftonline.com")) {
+    if (new URL(url).hostname === "login.microsoftonline.com") {
       tokenRequests += 1;
       const form = new URLSearchParams(body);
       const appId = form.get("client_id");
