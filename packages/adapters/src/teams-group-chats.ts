@@ -67,6 +67,8 @@ export class TeamsGroupChatError extends Error {
     readonly step: "token" | "create" | "install" | "message",
     readonly status: number,
     readonly code?: string,
+    /** The chat, when Teams created it before the failure. */
+    readonly chat?: { chatId: string; threadId: string; provider: string },
   ) {
     super(message);
     this.name = "TeamsGroupChatError";
@@ -108,16 +110,28 @@ export class TeamsGroupChats {
     const { bot, provider } = selected;
     const graphToken = await this.token(bot, GRAPH_SCOPE);
     const chatId = await this.createChat(graphToken, input);
+    const threadId = teamsGroupThreadId(chatId, this.config.serviceUrl);
     let installed = false;
-    if (bot.catalogAppId) {
-      await this.installApp(graphToken, chatId, bot.catalogAppId);
-      installed = true;
+    let messageId: string | undefined;
+    try {
+      if (bot.catalogAppId) {
+        await this.installApp(graphToken, chatId, bot.catalogAppId);
+        installed = true;
+      }
+      const connectorToken = await this.token(bot, BOT_CONNECTOR_SCOPE);
+      messageId = await this.postMessage(connectorToken, chatId, input.firstMessage);
+    } catch (error) {
+      // The chat exists now. Give its id to the caller, so it can register the chat.
+      if (!(error instanceof TeamsGroupChatError)) throw error;
+      throw new TeamsGroupChatError(error.message, error.step, error.status, error.code, {
+        chatId,
+        threadId,
+        provider,
+      });
     }
-    const connectorToken = await this.token(bot, BOT_CONNECTOR_SCOPE);
-    const messageId = await this.postMessage(connectorToken, chatId, input.firstMessage);
     return {
       chatId,
-      threadId: teamsGroupThreadId(chatId, this.config.serviceUrl),
+      threadId,
       provider,
       appId: bot.appId,
       installed,

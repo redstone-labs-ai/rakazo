@@ -247,11 +247,15 @@ describe("TeamsGroupChats", () => {
       code: "ResourceSpecificPermissionsMismatch",
     });
     expect(String((error as Error).message)).toContain("ResourceSpecificPermissionsMismatch");
+    expect((error as TeamsGroupChatError).chat).toMatchObject({
+      chatId: `19:chat-1-${ALPHA_APP}@thread.v2`,
+      provider: "teams-alpha",
+    });
     expect(fake.calls.filter((call) => call.url.endsWith("/installedApps"))).toHaveLength(1);
     expect(fake.calls.some((call) => call.url.endsWith("/activities"))).toBe(false);
   });
 
-  it("surfaces a chat create failure and a bad secret", async () => {
+  it("surfaces a chat create failure with no chat, and a bad secret", async () => {
     const forbidden = fakeMicrosoft({
       failures: { "/chats": { status: 403, code: "Forbidden", message: "Missing Chat.Create" } },
     });
@@ -259,6 +263,7 @@ describe("TeamsGroupChats", () => {
       step: "create",
       status: 403,
       code: "Forbidden",
+      chat: undefined,
     });
     expect(forbidden.calls.filter((call) => call.url.endsWith("/chats"))).toHaveLength(1);
 
@@ -352,7 +357,27 @@ describe("teams_create_group_chat tool", () => {
     expect(JSON.parse(activity?.body ?? "{}").text).toBe("Key [redacted] ready");
   });
 
-  it("returns a Graph error to the model and registers nothing", async () => {
+  it("registers the chat and returns its id when the first message fails", async () => {
+    const fake = fakeMicrosoft({
+      failures: {
+        "/activities": { status: 403, code: "BotNotInConversationRoster", message: "no" },
+      },
+    });
+    const { channels, call } = fakeRun(service(fake));
+    const result = await call({ members: ["a@example.test", "b@example.test"], message: "Hi" });
+    expect(result).toMatchObject({
+      code: "BotNotInConversationRoster",
+      chatId: `19:chat-1-${ALPHA_APP}@thread.v2`,
+      provider: "teams-alpha",
+      channelId: "channel-1",
+      retryable: false,
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]).not.toHaveProperty("introPostedAt");
+    expect(fake.calls.filter((c) => c.url.endsWith("/activities"))).toHaveLength(1);
+  });
+
+  it("returns an install error with the chat id and registers the chat", async () => {
     const fake = fakeMicrosoft({
       failures: {
         "/installedApps": {
@@ -366,10 +391,12 @@ describe("teams_create_group_chat tool", () => {
     const result = await call({ members: ["a@example.test", "b@example.test"], message: "Hi" });
     expect(result).toMatchObject({
       code: "ResourceSpecificPermissionsMismatch",
+      chatId: `19:chat-1-${ALPHA_APP}@thread.v2`,
+      channelId: "channel-1",
       retryable: false,
       error: expect.stringContaining("ResourceSpecificPermissionsMismatch"),
     });
-    expect(channels).toHaveLength(0);
+    expect(channels).toEqual([expect.objectContaining({ provider: "teams-alpha" })]);
   });
 
   it.each([

@@ -43,19 +43,7 @@ async function createTeamsGroupChat(ctx: RunContext, call: ToolCall) {
       ...(parsed.data.topic ? { topic: parsed.data.topic } : {}),
       firstMessage: redactSecrets(parsed.data.message, ctx.secrets),
     });
-    // The provider of the agent's own bot carries its agent id, so inbound messages in this chat
-    // start runs only for this agent. The bot already posted, so no intro is due.
-    const channel = await deps.prisma.messagingChannel.upsert({
-      where: { threadId: created.threadId },
-      create: {
-        provider: created.provider,
-        threadId: created.threadId,
-        name: parsed.data.topic ?? null,
-        introPostedAt: new Date(),
-      },
-      update: {},
-      select: { id: true },
-    });
+    const channel = await registerChat(ctx, created, parsed.data.topic, true);
     return call.finish({
       ok: true,
       chatId: created.chatId,
@@ -70,14 +58,44 @@ async function createTeamsGroupChat(ctx: RunContext, call: ToolCall) {
         status: error.status,
         code: error.code,
       });
+      // The chat exists in Teams. Register it, so it is not lost, and give its id back.
+      const channel = error.chat
+        ? await registerChat(ctx, error.chat, parsed.data.topic, false)
+        : undefined;
       return call.finish({
         error: error.message,
+        ...(error.chat ? { chatId: error.chat.chatId, provider: error.chat.provider } : {}),
+        ...(channel ? { channelId: channel.id } : {}),
         ...(error.code ? { code: error.code } : {}),
         retryable: false,
       });
     }
     throw error;
   }
+}
+
+/**
+ * Saves the chat as a messaging channel. The provider of the agent's own bot carries its agent
+ * id, so inbound messages in this chat start runs only for this agent. When the bot posted the
+ * first message, no intro is due.
+ */
+function registerChat(
+  ctx: RunContext,
+  chat: { threadId: string; provider: string },
+  topic: string | undefined,
+  posted: boolean,
+) {
+  return ctx.deps.prisma.messagingChannel.upsert({
+    where: { threadId: chat.threadId },
+    create: {
+      provider: chat.provider,
+      threadId: chat.threadId,
+      name: topic ?? null,
+      ...(posted ? { introPostedAt: new Date() } : {}),
+    },
+    update: {},
+    select: { id: true },
+  });
 }
 
 /** Teams group chats an agent's own bot creates. */
