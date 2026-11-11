@@ -47,6 +47,7 @@ const APPROVAL_REQUIRED_BUILTIN_TOOLS = new Set([
   "update_group",
   "create_child_routine",
   "feedback",
+  "teams_create_group_chat",
 ]);
 const EXPLICIT_APPROVAL_BUILTIN_TOOLS = new Set([
   "respond_agent_connection",

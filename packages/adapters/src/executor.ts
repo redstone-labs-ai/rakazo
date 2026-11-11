@@ -1376,6 +1376,7 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
             semanticMemoryForgets: Boolean(semanticMemory?.forget),
             mediaImagesEnabled: Boolean(deps.artifacts && mediaGeneration?.capabilities.images),
             mediaVideoEnabled: Boolean(deps.artifacts && mediaGeneration?.capabilities.video),
+            teamsGroupChatsEnabled: Boolean(deps.teamsGroupChats),
             cloudAgentEnabled: cloudAgentsEnabled(cloudAgent, run.spaceId),
             paymentWalletEnabled,
             messagingChannelRun: nonOwnerChatRun,

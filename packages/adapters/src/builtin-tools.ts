@@ -1768,6 +1768,25 @@ export const builtinAgentTools: ConnectorTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "teams_create_group_chat",
+    description:
+      "Create a Microsoft Teams group chat as your own Teams bot, add the given people, and post a first message. Only when the user asks for a new Teams chat. Needs the user's approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        members: {
+          type: "array",
+          minItems: 2,
+          items: { type: "string", description: "Entra user id or user principal name." },
+        },
+        topic: { type: "string", maxLength: 250, description: "Chat title." },
+        message: { type: "string", maxLength: 4000, description: "First message the bot posts." },
+      },
+      required: ["members", "message"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Agent-connection tools, exposed only when the messaging surface is enabled. */
