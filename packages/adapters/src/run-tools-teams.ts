@@ -3,7 +3,11 @@ import { getLogger } from "@rakazo/logging";
 import { z } from "zod";
 import type { RunContext } from "./run-context.js";
 import type { ToolCall, ToolHandlers } from "./run-tool-gate.js";
-import { TEAMS_GROUP_CHAT_MAX_MEMBERS, TeamsGroupChatError } from "./teams-group-chats.js";
+import {
+  TEAMS_GROUP_CHAT_MAX_BOTS,
+  TEAMS_GROUP_CHAT_MAX_MEMBERS,
+  TeamsGroupChatError,
+} from "./teams-group-chats.js";
 
 export const TEAMS_CREATE_GROUP_CHAT_TOOL = "teams_create_group_chat";
 
@@ -21,6 +25,7 @@ const CreateTeamsGroupChatSchema = z
     members: z.array(TeamsMember).min(2).max(TEAMS_GROUP_CHAT_MAX_MEMBERS),
     topic: z.string().trim().min(1).max(250).optional(),
     message: z.string().trim().min(1).max(4_000),
+    bots: z.array(z.string().trim().min(1).max(100)).max(TEAMS_GROUP_CHAT_MAX_BOTS).optional(),
   })
   .strict();
 
@@ -42,6 +47,7 @@ async function createTeamsGroupChat(ctx: RunContext, call: ToolCall) {
       members,
       ...(parsed.data.topic ? { topic: parsed.data.topic } : {}),
       firstMessage: redactSecrets(parsed.data.message, ctx.secrets),
+      ...(parsed.data.bots?.length ? { bots: parsed.data.bots } : {}),
     });
     const channel = await registerChat(ctx, created, parsed.data.topic, true);
     return call.finish({
@@ -50,6 +56,7 @@ async function createTeamsGroupChat(ctx: RunContext, call: ToolCall) {
       channelId: channel.id,
       provider: created.provider,
       appInstalled: created.installed,
+      ...(created.bots.length ? { bots: created.bots } : {}),
     });
   } catch (error) {
     if (error instanceof TeamsGroupChatError) {

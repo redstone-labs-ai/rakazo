@@ -14,6 +14,8 @@ const DEFAULT_RSC_PERMISSIONS = ["ChatMessage.Read.Chat"];
 const TOKEN_EARLY_RENEW_MS = 60_000;
 /** Teams accepts up to 250 members in a group chat; the bot adds itself. */
 export const TEAMS_GROUP_CHAT_MAX_MEMBERS = 249;
+/** The most other agent bots one create call adds. */
+export const TEAMS_GROUP_CHAT_MAX_BOTS = 10;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -47,6 +49,18 @@ export interface CreateTeamsGroupChatInput {
   members: readonly string[];
   topic?: string;
   firstMessage: string;
+  /**
+   * Other agents whose own bots join the chat. Teams adds a bot to a chat only by installing its
+   * app, so each of these bots installs its own app with its own credentials.
+   */
+  bots?: readonly string[];
+}
+
+/** The result for one other agent bot that was asked to join the chat. */
+export interface TeamsGroupChatBotJoin {
+  agentId: string;
+  installed: boolean;
+  error?: string;
 }
 
 export interface CreatedTeamsGroupChat {
@@ -58,6 +72,8 @@ export interface CreatedTeamsGroupChat {
   appId: string;
   installed: boolean;
   messageId?: string;
+  /** One entry for each agent in the input `bots`, in order. */
+  bots: TeamsGroupChatBotJoin[];
 }
 
 /** A Graph or Bot Connector failure. `code` is the service error code, when it sent one. */
@@ -113,11 +129,13 @@ export class TeamsGroupChats {
     const threadId = teamsGroupThreadId(chatId, this.config.serviceUrl);
     let installed = false;
     let messageId: string | undefined;
+    let joins: TeamsGroupChatBotJoin[] = [];
     try {
       if (bot.catalogAppId) {
         await this.installApp(graphToken, chatId, bot.catalogAppId);
         installed = true;
       }
+      joins = await this.addBots(chatId, input.agentId, bot.appId, input.bots ?? []);
       const connectorToken = await this.token(bot, BOT_CONNECTOR_SCOPE);
       messageId = await this.postMessage(connectorToken, chatId, input.firstMessage);
     } catch (error) {
@@ -136,7 +154,47 @@ export class TeamsGroupChats {
       appId: bot.appId,
       installed,
       ...(messageId ? { messageId } : {}),
+      bots: joins,
     };
+  }
+
+  /**
+   * Adds other agents' bots. Each bot installs its own app, so no bot needs a permission to
+   * install another app. A failure for one bot does not stop the others or the chat.
+   */
+  private async addBots(
+    chatId: string,
+    creatorAgentId: string,
+    creatorAppId: string,
+    agentIds: readonly string[],
+  ): Promise<TeamsGroupChatBotJoin[]> {
+    const joins: TeamsGroupChatBotJoin[] = [];
+    const seenApps = new Set([creatorAppId]);
+    for (const agentId of [...new Set(agentIds)]) {
+      const own = this.config.agents.get(agentId);
+      if (agentId === creatorAgentId || (own && seenApps.has(own.appId))) {
+        joins.push({ agentId, installed: false, error: "This bot is already in the chat." });
+        continue;
+      }
+      if (!own?.catalogAppId) {
+        joins.push({
+          agentId,
+          installed: false,
+          error: "This agent has no own Teams bot with a catalog app id.",
+        });
+        continue;
+      }
+      seenApps.add(own.appId);
+      try {
+        const token = await this.token(own, GRAPH_SCOPE);
+        await this.installApp(token, chatId, own.catalogAppId);
+        joins.push({ agentId, installed: true });
+      } catch (error) {
+        if (!(error instanceof TeamsGroupChatError)) throw error;
+        joins.push({ agentId, installed: false, error: error.message });
+      }
+    }
+    return joins;
   }
 
   private token(bot: TeamsGroupChatBot, scope: string): Promise<string> {
