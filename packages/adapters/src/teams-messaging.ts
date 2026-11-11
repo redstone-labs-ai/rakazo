@@ -162,12 +162,21 @@ export function teamsPlatform(
     members: (threadId) => adapter.listMembers(threadId),
     membershipChanges: (raw) => adapter.membershipChange(raw),
     groupMentionRequired: true,
+    // A group message from any bot never starts a run. This stops agent bots from replying
+    // to each other in a loop.
+    acceptsGroup: (raw) => !isTeamsBotSender(raw),
     botMentions: (raw) => adapter.botMentions(raw),
     channelName: teamsChannelName,
     normalizeThreadId: teamsChannelThreadId,
     isPermanentSendError: isTeamsUnreachable,
     directoryUser: teamsDirectoryUser,
   };
+}
+
+/** True when a bot sent the activity. Bot Framework gives bot senders a `28:` id. */
+export function isTeamsBotSender(activity: unknown): boolean {
+  const id = asRecord(asRecord(activity)?.from)?.id;
+  return typeof id === "string" && id.startsWith("28:");
 }
 
 /**

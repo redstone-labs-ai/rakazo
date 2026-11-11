@@ -12,9 +12,11 @@ import {
 } from "./chat-sdk-surface.js";
 import { messagingEnvFromProcess, messagingPlatformsFromEnv } from "./messaging-platforms.js";
 import {
+  isTeamsBotSender,
   LazyTeamsAdapter,
   SHARED_TEAMS_BOT_APP_ID,
   teamsConversationIdOfThread,
+  teamsPlatform,
   teamsProviderForAgent,
 } from "./teams-messaging.js";
 
@@ -732,5 +734,19 @@ describe("Teams agent bots", () => {
     const posts = activityPosts().length;
     await surface.sendToThread({ threadId: agentEvent!.threadId, body: "Noted." }, context);
     expect(activityPosts()).toHaveLength(posts + 1);
+  });
+});
+
+describe("Teams bot loop guard", () => {
+  const credentials = { teamsAppId: "app-a", teamsAppPassword: "pw", teamsAppTenantId: "t" };
+  it("treats a 28: sender as a bot", () => {
+    expect(isTeamsBotSender({ from: { id: "28:app-b" } })).toBe(true);
+    expect(isTeamsBotSender({ from: { id: "29:user", aadObjectId: "u1" } })).toBe(false);
+    expect(isTeamsBotSender({})).toBe(false);
+  });
+  it("drops group messages from another agent bot", () => {
+    const platform = teamsPlatform(credentials, { provider: "teams-a", agentId: "a" });
+    expect(platform?.acceptsGroup?.({ from: { id: "28:app-b" } })).toBe(false);
+    expect(platform?.acceptsGroup?.({ from: { id: "29:user" } })).toBe(true);
   });
 });
