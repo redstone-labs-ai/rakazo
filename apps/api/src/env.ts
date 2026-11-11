@@ -2,6 +2,7 @@ import type {
   ApnsVoipConfig,
   McpTokenExchangeConfig,
   PhotonProjectCredentials,
+  TeamsAgentBot,
   TelegramBotCredentials,
 } from "@rakazo/adapters";
 import {
@@ -15,6 +16,7 @@ import {
   resolveDeploymentModel,
   resolveSandboxProvider,
   secretStoreOptionsFromEnv,
+  teamsAgentBotsFromEnv,
   telegramBotsFromEnv,
 } from "@rakazo/adapters";
 import type { OidcConfig } from "@rakazo/auth";
@@ -173,6 +175,12 @@ export interface AppEnv {
   teamsAppId: string | undefined;
   teamsAppPassword: string | undefined;
   teamsAppTenantId: string | undefined;
+  /** Agents with their own Teams bot (TEAMS_AGENT_BOTS). The rest use the shared bot. */
+  teamsAgentBots?: TeamsAgentBot[];
+  /** Managebot's internal endpoint for a Teams chat's listening setting, per agent. */
+  managebotTeamsListeningUrl: string | undefined;
+  /** Bearer token for that endpoint. */
+  managebotInternalToken: string | undefined;
   /** Unknown chat senders auto-provision their own accounts when true. */
   messagingOpenSignup: boolean;
   /** A Teams sender whose Entra account signed in here is linked without a code. */
@@ -365,6 +373,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     teamsAppId: optional(source.TEAMS_APP_ID),
     teamsAppPassword: optional(source.TEAMS_APP_PASSWORD),
     teamsAppTenantId: optional(source.TEAMS_APP_TENANT_ID),
+    teamsAgentBots: teamsAgentBotsFromEnv(source),
+    managebotTeamsListeningUrl: optional(source.MANAGEBOT_TEAMS_LISTENING_URL),
+    managebotInternalToken: optional(source.MANAGEBOT_INTERNAL_TOKEN),
     messagingOpenSignup: source.MESSAGING_OPEN_SIGNUP === "true",
     teamsAutoLink: source.RAKAZO_TEAMS_AUTO_LINK === "true",
     productName: productNameFromEnv(source),

@@ -968,6 +968,8 @@ export interface MessagingInboundMessage {
    * addressed to it.
    */
   groupMentionRequired?: boolean;
+  /** The one Rakazo agent the receiving bot belongs to, when it is that agent's own bot. */
+  agentId?: string;
   /** `content` without the platform's @-mentions of the bot, when it had any. */
   contentWithoutMention?: string;
   /** Team-room workspace/team id when the platform reports one (Slack team_id, …). */

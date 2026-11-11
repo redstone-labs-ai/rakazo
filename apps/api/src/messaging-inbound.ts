@@ -49,6 +49,8 @@ import {
   MESSAGE_ROUTING_REASON,
   MESSAGE_ROUTING_RESERVATION_MS,
 } from "./team-chat-startup.js";
+import type { TeamsListeningLookup } from "./teams-listening.js";
+import { groupMessageRunsAgent } from "./teams-listening.js";
 import { cancelThreadRuns, finishThreadStop, STOPPED_BY_MESSAGE_NOTE } from "./thread-target.js";
 import {
   deliverWebhookEvent,
@@ -76,6 +78,11 @@ export interface MessagingInboundDeps {
    * sign-in is linked to that user's bot without a code. Off by default.
    */
   directoryLinking?: boolean;
+  /**
+   * Managebot's listening setting per (Teams chat, agent). Without it, a group message that
+   * does not @-mention the bot never starts a run.
+   */
+  teamsListening?: TeamsListeningLookup;
   /** Product name in the group intro and join prompt. Defaults to "Rakazo". */
   productName?: string;
   signupPolicy: SignupPolicyEnv;
@@ -1100,8 +1107,9 @@ async function handleChannelEvent(
   if (!event.content.trim() && !event.mediaUrl && !event.attachments?.length) return;
 
   // Where the platform delivers every group message, only those that @-mention the bot are
-  // addressed to it; the rest must not start a run for each member's bot.
-  if (event.groupMentionRequired && !event.mentionsBot) return;
+  // addressed to it. A message without a mention goes on only when a listening lookup can
+  // allow it; each agent is then checked in the fan-out below.
+  if (event.groupMentionRequired && !event.mentionsBot && !deps.teamsListening) return;
 
   // Only approved owners' bots participate.
   const senderMember = await deps.prisma.messagingChannelMember.findUnique({
@@ -1135,6 +1143,7 @@ async function handleChannelEvent(
       where: { id: member.identityId! },
     });
     if (!identity) continue;
+    if (!(await groupMessageRunsAgent(event, identity.botId, deps.teamsListening))) continue;
     const thread = await deps.prisma.thread.findFirst({ where: { botId: identity.botId } });
     if (!thread) continue;
     const target = {

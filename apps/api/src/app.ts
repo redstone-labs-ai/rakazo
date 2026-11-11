@@ -208,6 +208,7 @@ import {
   TEAM_CHAT_STARTUP_SHUTDOWN_MS,
   TeamChatStartupRetries,
 } from "./team-chat-startup.js";
+import { managebotTeamsListening } from "./teams-listening.js";
 import { endUserDeviceSession, mountUserDeviceRoutes } from "./user-devices.js";
 import { mountVoiceHttpRoutes, transcribeInboundVoice, voiceAccountErrorStatus } from "./voice.js";
 import { mountWebhookHttpRoutes } from "./webhook.js";
@@ -1149,6 +1150,14 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         provisionMessagingIdentity(prisma, request, policyEnv, env.newUserDefaults),
       openSignup: env.messagingOpenSignup,
       directoryLinking: env.teamsAutoLink,
+      ...(env.managebotTeamsListeningUrl
+        ? {
+            teamsListening: managebotTeamsListening({
+              url: env.managebotTeamsListeningUrl,
+              token: env.managebotInternalToken,
+            }),
+          }
+        : {}),
       productName: env.productName,
       signupPolicy: {
         signupsEnabled: env.signupsEnabled,

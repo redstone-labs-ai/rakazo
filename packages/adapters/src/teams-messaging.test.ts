@@ -11,7 +11,12 @@ import {
   MessagingSendError,
 } from "./chat-sdk-surface.js";
 import { messagingEnvFromProcess, messagingPlatformsFromEnv } from "./messaging-platforms.js";
-import { LazyTeamsAdapter } from "./teams-messaging.js";
+import {
+  LazyTeamsAdapter,
+  SHARED_TEAMS_BOT_APP_ID,
+  teamsConversationIdOfThread,
+  teamsProviderForAgent,
+} from "./teams-messaging.js";
 
 const teams = vi.hoisted(() => {
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -652,5 +657,80 @@ describe("Teams group members", () => {
     );
     expect(response?.status).toBe(403);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe("Teams agent bots", () => {
+  const AGENT_APP_ID = "00000000-0000-0000-0000-0000000000b7";
+  const AGENT_BOT = `28:${AGENT_APP_ID}`;
+
+  function agentEnv(extra: Record<string, string> = {}) {
+    return messagingEnvFromProcess({
+      TEAMS_APP_ID: APP_ID,
+      TEAMS_APP_PASSWORD: "app-secret",
+      TEAMS_APP_TENANT_ID: TENANT,
+      TEAMS_AGENT_BOTS: JSON.stringify({
+        agentLeasing: { appId: AGENT_APP_ID, passwordEnv: "TEAMS_APP_PASSWORD_LEASING" },
+        agentNoSecret: { appId: "00000000-0000-0000-0000-0000000000c1", passwordEnv: "MISSING" },
+      }),
+      TEAMS_APP_PASSWORD_LEASING: "leasing-secret",
+      ...extra,
+    });
+  }
+
+  function agentSurface() {
+    const surface = new ChatSdkMessagingSurface(messagingPlatformsFromEnv(agentEnv()));
+    const events: MessagingInboundMessage[] = [];
+    surface.onInbound(async (event) => {
+      if (event.type === "message") events.push(event);
+    });
+    return { surface, events };
+  }
+
+  it("mounts one provider per agent bot, with the password from its named variable", () => {
+    const platforms = messagingPlatformsFromEnv(agentEnv());
+    expect(platforms.map((platform) => platform.provider)).toEqual(["teams", "teams-agentleasing"]);
+    const agent = platforms[1]!;
+    expect(agent.agentId).toBe("agentLeasing");
+    expect((agent.adapter as LazyTeamsAdapter).config).toEqual({
+      appId: AGENT_APP_ID,
+      appPassword: "leasing-secret",
+      tenantId: TENANT,
+    });
+    expect(teamsProviderForAgent("agentLeasing", agentEnv().teamsAgentBots ?? [])).toBe(
+      "teams-agentleasing",
+    );
+    expect(teamsProviderForAgent("agentNoSecret", agentEnv().teamsAgentBots ?? [])).toBe("teams");
+    expect(SHARED_TEAMS_BOT_APP_ID).toBe("8ccaca5c-5964-4594-b8c8-01d6c27e7ef8");
+  });
+
+  it("routes each activity to the agent whose bot it was sent to and keeps the chats apart", async () => {
+    connector.members.set(groupChat.id, [[{ id: "29:ada", name: "Ada Lovelace" }]]);
+    const { surface, events } = agentSurface();
+    const toAgent = {
+      ...activity({ conversation: groupChat, text: "lease renewals are in" }),
+      recipient: { id: AGENT_BOT, name: "Leasing" },
+    };
+    // Both bots post to the same URL: the recipient picks the agent.
+    await surface.handleWebhook("teams", webhook(toAgent));
+    await surface.handleWebhook(
+      "teams",
+      webhook(activity({ conversation: groupChat, text: "rent roll is up" })),
+    );
+    expect(events).toHaveLength(2);
+    const [agentEvent, sharedEvent] = events;
+    expect(agentEvent).toMatchObject({ provider: "teams-agentleasing", agentId: "agentLeasing" });
+    expect(sharedEvent?.provider).toBe("teams");
+    expect(sharedEvent).not.toHaveProperty("agentId");
+    expect(agentEvent?.threadId.startsWith("teams-agentleasing:")).toBe(true);
+    expect(agentEvent?.threadId).not.toBe(sharedEvent?.threadId);
+    expect(teamsConversationIdOfThread(agentEvent!.threadId)).toBe(groupChat.id);
+    expect(teamsConversationIdOfThread(sharedEvent!.threadId)).toBe(groupChat.id);
+
+    // Each agent replies as its own bot.
+    expect(teams.configs.map((config) => config.appId)).toContain(AGENT_APP_ID);
+    const posts = activityPosts().length;
+    await surface.sendToThread({ threadId: agentEvent!.threadId, body: "Noted." }, context);
+    expect(activityPosts()).toHaveLength(posts + 1);
   });
 });
