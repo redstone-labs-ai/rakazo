@@ -17,6 +17,10 @@ msgstr ""
 msgid " (unread)"
 msgstr " (अपठित)"
 
+#: src/components/TeamsAppCard.tsx
+msgid "(estimated)"
+msgstr ""
+
 #. placeholder {0}: pinned.length
 #: src/pages/model-settings/space-bots-model.tsx
 msgid "{0, plural, one {# bot has its own model:} other {# bots have their own model:}}"
@@ -157,6 +161,10 @@ msgstr "{app} ग्रुप चैट"
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {{name} और उसका # बॉट हटाएँ?} other {{name} और उसके # बॉट हटाएँ?}}"
+
+#: src/components/TeamsAppCard.tsx
+msgid "{botName} leaves every Teams chat it's in; Bot joins those chats instead."
+msgstr ""
 
 #: src/pages/shell/computer-view.tsx
 msgid "{botName}’s computer"
@@ -1115,6 +1123,10 @@ msgstr "बॉट"
 msgid "Bot"
 msgstr "बॉट"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Bot doesn't have permission to do this step. Ask an admin."
+msgstr ""
+
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Bot is watching, not acting"
 msgstr "बॉट देख रहा है, कार्रवाई नहीं कर रहा"
@@ -1217,6 +1229,7 @@ msgstr "तस्वीरें नहीं पढ़ सकता"
 #: src/components/ModelCredits.tsx
 #: src/components/PasskeySettings.tsx
 #: src/components/teach/TeachComputerOverlay.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/vault/VaultItemDetail.tsx
 #: src/pages/AccountSettingsOverlay.tsx
 #: src/pages/Artifacts.tsx
@@ -1975,6 +1988,7 @@ msgstr ""
 #: src/components/ConfirmIdentityDialog.tsx
 #: src/components/PasskeyOffer.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/lib/account-security.ts
 #: src/lib/sso-flow.ts
@@ -2450,6 +2464,10 @@ msgstr "यह पेज लोड नहीं हो सका। फिर �
 msgid "Couldn't load your wallet"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Couldn't publish to Teams. A Teams admin needs to sign in again."
+msgstr ""
+
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Couldn't update bot style"
 msgstr ""
@@ -2512,6 +2530,10 @@ msgstr "अपना Rakazo बनाएं"
 
 #: src/components/AskCard.tsx
 msgid "Created"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Creating"
 msgstr ""
 
 #: src/pages/GroupPanel.tsx
@@ -2753,6 +2775,7 @@ msgstr ""
 msgid "Desktop update"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
 #: src/pages/RoutineRunHistory.tsx
 #: src/pages/shell/composer-error.tsx
 msgid "Details"
@@ -2874,6 +2897,7 @@ msgid "Don’t have an account?"
 msgstr "खाता नहीं है?"
 
 #: src/components/AccountDataSettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/ToolActivityDisclosure.tsx
 #: src/lib/ticket-status.ts
 #: src/pages/ActivityList.tsx
@@ -3337,6 +3361,10 @@ msgstr ""
 msgid "Git event"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Give {botName} its own Teams app"
+msgstr ""
+
 #: src/components/InviteDialog.tsx
 msgid "Give a friend {weeks} weeks free"
 msgstr "किसी दोस्त को {weeks} हफ़्ते मुफ़्त दें"
@@ -3534,6 +3562,15 @@ msgstr "एजेंट इंपोर्ट करें"
 #: src/components/AccountDataSettings.tsx
 msgid "Import data"
 msgstr "डेटा आयात करें"
+
+#. placeholder {0}: app.chatCount
+#: src/components/TeamsAppCard.tsx
+msgid "In {0} chats"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "In {chatCount} chats"
+msgstr ""
 
 #: src/lib/ticket-status.ts
 msgid "In progress"
@@ -4072,6 +4109,14 @@ msgstr ""
 #: src/lib/dictation.ts
 msgid "Microphone failed"
 msgstr "माइक्रोफ़ोन विफल"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft is still setting up {botName}'s app. This usually takes under a minute — Retry."
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft Teams"
+msgstr ""
 
 #: src/pages/model-settings/compatible-model-fields.tsx
 #: src/pages/Onboarding.tsx
@@ -5058,6 +5103,10 @@ msgstr "प्रोवाइडर"
 msgid "Providers"
 msgstr "प्रोवाइडर"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Published to catalog"
+msgstr ""
+
 #: src/components/CloudAgentCard.tsx
 msgid "Pull request"
 msgstr "पुल अनुरोध"
@@ -5225,6 +5274,10 @@ msgstr ""
 msgid "Region"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Registered"
+msgstr ""
+
 #: src/lib/user-error.ts
 msgid "Registration is closed"
 msgstr "पंजीकरण बंद है"
@@ -5257,6 +5310,7 @@ msgstr "फिर से लोड करें"
 
 #: src/components/ApprovalRulesSettings.tsx
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/components/vault/LoginFieldsInput.tsx
 #: src/components/vault/VaultItemDetail.tsx
@@ -5279,6 +5333,10 @@ msgstr "{0} हटाएं"
 msgid "Remove {0} from the group"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Remove {botName} from Teams?"
+msgstr ""
+
 #: src/components/vault/VaultItemDetail.tsx
 msgid "Remove {secretName}? Bots will no longer be able to use it."
 msgstr "{secretName} हटाएँ? बॉट इसका उपयोग नहीं कर पाएँगे।"
@@ -5296,6 +5354,10 @@ msgstr "बदलाव ट्रिगर हटाएँ"
 #: src/pages/McpServersOverlay.tsx
 #: src/pages/PluginsOverlay.tsx
 msgid "Remove from every space?"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Remove from Teams"
 msgstr ""
 
 #: src/pages/RoutineEditor.tsx
@@ -5327,11 +5389,16 @@ msgstr ""
 msgid "Remove webhook"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Removed from Teams"
+msgstr ""
+
 #: src/pages/ScratchpadSection.tsx
 msgid "Removed, but list refresh failed"
 msgstr "हटाया गया, लेकिन सूची रिफ़्रेश विफल रही"
 
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/PluginsOverlay.tsx
 msgid "Removing…"
 msgstr "हटाया जा रहा है…"
@@ -5473,6 +5540,7 @@ msgstr ""
 #: src/components/integrations/plugin-marketplace.tsx
 #: src/components/integrations/skills-dialog.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/AdminAccessPage.tsx
 #: src/pages/Auth.tsx
 #: src/pages/ModelRoleSettings.tsx
@@ -5874,6 +5942,10 @@ msgstr "सेटिंग्स: उपयोग"
 msgid "Setup complete"
 msgstr "सेटअप पूरा हुआ"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Setup failed"
+msgstr ""
+
 #: src/pages/model-settings/compatible-model-fields.tsx
 msgid "Setup help"
 msgstr "सेटअप सहायता"
@@ -6066,6 +6138,10 @@ msgstr ""
 #: src/pages/shell/agent-import.tsx
 msgid "Some settings are not imported"
 msgstr "कुछ सेटिंग्स इंपोर्ट नहीं होतीं"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Something went wrong setting up Teams. Retry, or ask an admin."
+msgstr ""
 
 #: src/App.tsx
 #: src/lib/user-error.ts
@@ -6339,6 +6415,10 @@ msgstr "टीम"
 #: src/pages/shell/computer-view.tsx
 msgid "Team Computer"
 msgstr "टीम कंप्यूटर"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Teams has no signal for this. Estimated from catalog publish time; confirmed when {botName} is first added to a chat."
+msgstr ""
 
 #: src/pages/RoutineEditor.tsx
 msgid "Teams message"
@@ -7013,6 +7093,10 @@ msgstr ""
 
 #: src/components/integrations/plugin-marketplace.tsx
 msgid "View source"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Visible in @mentions"
 msgstr ""
 
 #: src/pages/settings-nav.ts

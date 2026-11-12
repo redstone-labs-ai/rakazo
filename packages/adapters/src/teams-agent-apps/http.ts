@@ -23,6 +23,8 @@ export class MicrosoftApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** Graph's `error.innerError.code`, when present. */
+    readonly innerCode?: string,
   ) {
     super(message);
     this.name = "MicrosoftApiError";
@@ -94,10 +96,13 @@ export async function msCall(fetchImpl: FetchLike, request: MsRequest): Promise<
   const error = asRecord(json?.error);
   const code = stringField(error, "code") || undefined;
   const detail = stringField(error, "message") || response.statusText || "request failed";
+  const inner = asRecord(error?.innerError) ?? asRecord(error?.innererror);
+  const innerCode = stringField(inner, "code") || undefined;
   throw new MicrosoftApiError(
     `${request.label} failed (${response.status}${code ? ` ${code}` : ""}): ${detail}`,
     response.status,
     code,
+    innerCode,
   );
 }
 

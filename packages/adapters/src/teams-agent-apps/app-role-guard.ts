@@ -5,9 +5,11 @@ import {
   GRAPH_BASE,
   GRAPH_SCOPE,
   MICROSOFT_GRAPH_APP_ID,
+  MicrosoftApiError,
   msCall,
   stringField,
 } from "./http.js";
+import { createdRecently, withReplicationRetry } from "./replication.js";
 import type { AgentTeamsAppRecord } from "./store.js";
 
 /**
@@ -214,8 +216,24 @@ export interface AgentAppSecurityEvent {
 
 export type GuardDeps = Pick<
   AgentTeamsAppsDeps,
-  "store" | "fetch" | "provisionerToken" | "identity" | "config" | "securityEvent"
+  | "store"
+  | "fetch"
+  | "provisionerToken"
+  | "identity"
+  | "config"
+  | "securityEvent"
+  | "now"
+  | "sleep"
+  | "replicationDelaysMs"
 >;
+
+export interface AssignAgentGraphAppRolesOptions {
+  /**
+   * The caller just created the agent's Entra app or service principal, so Graph may not see it
+   * yet. Reads and writes on it then retry replication-lag 404s; checks are unchanged.
+   */
+  justCreated?: boolean;
+}
 
 function record(deps: GuardDeps, event: AgentAppSecurityEvent): Promise<void> {
   const write =
@@ -228,7 +246,11 @@ function record(deps: GuardDeps, event: AgentAppSecurityEvent): Promise<void> {
  * Grants the agent its two Graph application roles, through every guard. Idempotent: roles it
  * already holds are skipped. Throws `AppRoleGuardRefusal` on any refusal.
  */
-export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): Promise<void> {
+export async function assignAgentGraphAppRoles(
+  deps: GuardDeps,
+  botId: string,
+  options: AssignAgentGraphAppRolesOptions = {},
+): Promise<void> {
   const base = {
     botId,
     entraAppId: null as string | null,
@@ -264,11 +286,23 @@ export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): 
   const token = await deps.provisionerToken(GRAPH_SCOPE);
   const get = (url: string, label: string, allow?: number[]) =>
     msCall(deps.fetch, { method: "GET", url, token, label, ...(allow ? { allow } : {}) });
+  // Only the agent's own just-created app and principal get replication-lag retries.
+  const recent =
+    options.justCreated === true ||
+    createdRecently(app.createdAt, (deps.now ?? (() => new Date()))());
+  const retry = <T>(fn: () => Promise<T>) =>
+    withReplicationRetry(fn, {
+      recent,
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      ...(deps.replicationDelaysMs ? { delays: deps.replicationDelaysMs } : {}),
+    });
 
   // The app is the one recorded, has this flow's shape, and the provisioner owns it.
-  const entraApp = await get(
-    `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}?$select=id,appId,displayName,signInAudience,tags,requiredResourceAccess`,
-    "read agent Entra app",
+  const entraApp = await retry(() =>
+    get(
+      `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}?$select=id,appId,displayName,signInAudience,tags,requiredResourceAccess`,
+      "read agent Entra app",
+    ),
   );
   const shape = entraApp.json;
   await enforce(
@@ -284,9 +318,11 @@ export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): 
       { appId: entraAppId, objectId: entraObjectId },
     ),
   );
-  const owners = await get(
-    `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}/owners?$select=id`,
-    "read agent Entra app owners",
+  const owners = await retry(() =>
+    get(
+      `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}/owners?$select=id`,
+      "read agent Entra app owners",
+    ),
   );
   const ownerIds = (Array.isArray(owners.json?.value) ? owners.json.value : []).map((owner) =>
     stringField(asRecord(owner), "id"),
@@ -294,10 +330,16 @@ export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): 
   await enforce(checkOwnership(ownerIds, protectedIds.provisionerObjectId));
 
   // The principal is that app's own service principal.
-  const sp = await get(
-    `${GRAPH_BASE}/servicePrincipals(appId='${encodeURIComponent(entraAppId)}')?$select=id,appId`,
-    "read agent service principal",
-    [404],
+  // While replicating, a 404 is retried; once the budget is spent (or when not recent) a 404
+  // reads as "not found" and the check below refuses.
+  const spUrl = `${GRAPH_BASE}/servicePrincipals(appId='${encodeURIComponent(entraAppId)}')?$select=id,appId`;
+  const sp = await retry(() => get(spUrl, "read agent service principal")).catch(
+    (error: unknown) => {
+      if (error instanceof MicrosoftApiError && error.status === 404) {
+        return { status: 404, json: undefined };
+      }
+      throw error;
+    },
   );
   const principal = { id: stringField(sp.json, "id"), appId: stringField(sp.json, "appId") };
   base.servicePrincipalId = principal.id || null;
@@ -312,7 +354,7 @@ export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): 
   if (!resolved.ok) return refused(resolved.reason);
 
   const assignmentsUrl = `${GRAPH_BASE}/servicePrincipals/${encodeURIComponent(principal.id)}/appRoleAssignments`;
-  const assigned = await get(assignmentsUrl, "read app role assignments");
+  const assigned = await retry(() => get(assignmentsUrl, "read app role assignments"));
   const current = new Set(
     (Array.isArray(assigned.json?.value) ? assigned.json.value : [])
       .map((entry) => asRecord(entry))
@@ -322,13 +364,15 @@ export async function assignAgentGraphAppRoles(deps: GuardDeps, botId: string): 
   for (const role of AGENT_GRAPH_APP_ROLES) {
     const appRoleId = resolved.roles.get(role) ?? "";
     if (current.has(appRoleId)) continue;
-    await msCall(deps.fetch, {
-      method: "POST",
-      url: assignmentsUrl,
-      token,
-      body: { principalId: principal.id, resourceId: resolved.resourceId, appRoleId },
-      label: `grant ${role}`,
-    });
+    await retry(() =>
+      msCall(deps.fetch, {
+        method: "POST",
+        url: assignmentsUrl,
+        token,
+        body: { principalId: principal.id, resourceId: resolved.resourceId, appRoleId },
+        label: `grant ${role}`,
+      }),
+    );
     await record(deps, {
       type: "teams.agent_app.role_assigned",
       metadata: { ...base, role, appRoleId, resourceId: resolved.resourceId },

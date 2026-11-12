@@ -50,6 +50,10 @@ export interface AgentTeamsAppsDeps {
   /** A delegated Teams admin token for Graph: the org catalog takes no app-only publish. */
   catalogToken: () => Promise<string>;
   now?: () => Date;
+  /** Waits between replication-lag retries; injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Replication-lag backoff; default `REPLICATION_RETRY_DELAYS_MS`. */
+  replicationDelaysMs?: readonly number[];
   /**
    * Called after provisioning reaches `published` (the router's `refreshAgentTeamsPlatforms`),
    * so the new bot starts answering without a restart. A failure here is logged, not fatal.

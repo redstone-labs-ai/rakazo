@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  Disclosure,
   SectionHeading,
   Spinner,
   Stepper,
@@ -28,6 +29,9 @@ type TeamsAppStatus =
   | "removed"
   | "failed";
 
+/** The server's classification of `lastError`; the card shows a translated sentence for it. */
+type TeamsAppErrorKind = "replicating" | "catalog_auth" | "forbidden" | "unknown";
+
 type TeamsAppProgressStep = "creating" | "registered" | "published" | "visible" | "in_chats";
 /** The provisioner's `visibilityStatus` step: progress, or one of the terminal/teardown states. */
 type TeamsAppStep = TeamsAppProgressStep | "removing" | "removed" | "failed";
@@ -41,7 +45,11 @@ export type TeamsAppState = {
     estimated: boolean;
     chatCount: number;
     chats: { chatId: string; installedAt: string; topic?: string }[];
+    /** Redacted provider detail; shown only behind "Details". */
     lastError: string | null;
+    /** Plain-English summary of `lastError` from the server. */
+    userMessage: string | null;
+    userMessageKind: TeamsAppErrorKind | null;
     publishedAt: string | null;
     firstInstalledAt: string | null;
   };
@@ -83,7 +91,6 @@ async function request(url: string, method = "GET"): Promise<Response> {
 
 /** The agent's own chat app: create it, follow it to the @mention list, see its chats, remove it. */
 export function TeamsAppCard({ botId, botName }: { botId: string; botName: string }) {
-  const { t } = useLingui();
   const queryClient = useQueryClient();
   const queryKey = ["teams-app", botId];
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -127,7 +134,25 @@ export function TeamsAppCard({ botId, botName }: { botId: string; botName: strin
             ) : null}
             {app.status === "failed" ? (
               <div className="flex items-start justify-between gap-3" role="alert">
-                <p className="text-[13px] text-destructive">{app.lastError ?? t`Setup failed`}</p>
+                <div className="min-w-0 space-y-1">
+                  <TeamsAppFailureMessage app={app} botName={botName} />
+                  {app.lastError ? (
+                    <Disclosure
+                      summary={
+                        <span className="text-[12px] text-muted-foreground">
+                          <Trans>Details</Trans>
+                        </span>
+                      }
+                    >
+                      <p
+                        className="mt-1 break-words font-mono text-[12px] text-muted-foreground"
+                        data-testid="teams-app-error-details"
+                      >
+                        {app.lastError}
+                      </p>
+                    </Disclosure>
+                  ) : null}
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -202,6 +227,31 @@ export function TeamsAppCard({ botId, botName }: { botId: string; botName: strin
         </AlertDialogContent>
       </AlertDialog>
     </section>
+  );
+}
+
+/** The user-facing sentence for a failure: translated by kind, else the server's text. */
+function TeamsAppFailureMessage({
+  app,
+  botName,
+}: {
+  app: NonNullable<TeamsAppState["app"]>;
+  botName: string;
+}) {
+  const { t } = useLingui();
+  const byKind: Record<TeamsAppErrorKind, string> = {
+    replicating: t`Microsoft is still setting up ${botName}'s app. This usually takes under a minute — Retry.`,
+    catalog_auth: t`Couldn't publish to Teams. A Teams admin needs to sign in again.`,
+    forbidden: t`Bot doesn't have permission to do this step. Ask an admin.`,
+    unknown: t`Something went wrong setting up Teams. Retry, or ask an admin.`,
+  };
+  const message = app.userMessageKind
+    ? byKind[app.userMessageKind]
+    : (app.userMessage ?? t`Setup failed`);
+  return (
+    <p className="text-[13px] text-destructive" data-testid="teams-app-error">
+      {message}
+    </p>
   );
 }
 

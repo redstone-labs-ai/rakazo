@@ -62,13 +62,64 @@ export type TeamsAppResponse = {
     estimated: boolean;
     chatCount: number;
     chats: { chatId: string; installedAt: string }[];
+    /** The redacted provider error, for a collapsed "Details" disclosure only. */
     lastError: string | null;
+    /** What to tell the user about `lastError`; null when there is none. */
+    userMessage: string | null;
+    userMessageKind: TeamsAppErrorKind | null;
     publishedAt: string | null;
     firstInstalledAt: string | null;
   };
 };
 
 const PATH = "/api/bots/:botId/teams-app";
+
+/** Why setup failed, in terms a bot owner can act on. The web card translates by kind. */
+export type TeamsAppErrorKind = "replicating" | "catalog_auth" | "forbidden" | "unknown";
+
+const USER_MESSAGES: Record<TeamsAppErrorKind, string> = {
+  replicating:
+    "Microsoft is still setting up this agent's app. This usually takes under a minute — Retry.",
+  catalog_auth: "Couldn't publish to Teams. A Teams admin needs to sign in again.",
+  forbidden: "Bot doesn't have permission to do this step. Ask an admin.",
+  unknown: "Something went wrong setting up Teams. Retry, or ask an admin.",
+};
+
+/** Classifies a stored (already redacted) Graph/Azure error. Never echoes it. */
+export function teamsAppErrorKind(lastError: string): TeamsAppErrorKind {
+  if (
+    /Request_ResourceNotFound|does not exist or one of its queried reference-property/i.test(
+      lastError,
+    )
+  ) {
+    return "replicating";
+  }
+  if (
+    /invalid_grant|interaction_required|consent_required|AADSTS\d+|refresh token|catalog token/i.test(
+      lastError,
+    ) ||
+    /Teams catalog app failed \((401|403)\b/i.test(lastError)
+  ) {
+    return "catalog_auth";
+  }
+  if (
+    /\(403\b|Authorization_RequestDenied|AuthorizationFailed|Forbidden|app role assignment refused/i.test(
+      lastError,
+    )
+  ) {
+    return "forbidden";
+  }
+  return "unknown";
+}
+
+/** A short plain-English message for a stored error, or null when there is none. */
+export function teamsAppUserMessage(
+  lastError: string | null,
+): { kind: TeamsAppErrorKind; message: string } | null {
+  if (!lastError) return null;
+  const kind = teamsAppErrorKind(lastError);
+  return { kind, message: USER_MESSAGES[kind] };
+}
 
 export function prismaOwnsBot(prisma: PrismaClient) {
   return async (actor: Actor, botId: string) =>
@@ -119,6 +170,7 @@ export function teamsAppView(
     .filter((chat) => chat.removedAt === null)
     .map((chat) => ({ chatId: chat.chatId, installedAt: chat.installedAt.toISOString() }));
   const { step, label, estimated } = visibilityStatus(app, now, chats.length);
+  const user = teamsAppUserMessage(app.lastError);
   return {
     status: app.status,
     step,
@@ -127,6 +179,8 @@ export function teamsAppView(
     chatCount: chats.length,
     chats,
     lastError: app.lastError,
+    userMessage: user?.message ?? null,
+    userMessageKind: user?.kind ?? null,
     publishedAt: app.publishedAt?.toISOString() ?? null,
     firstInstalledAt: app.firstInstalledAt?.toISOString() ?? null,
   };

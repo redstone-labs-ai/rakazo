@@ -18,6 +18,10 @@ msgstr ""
 msgid " (unread)"
 msgstr "（未讀）"
 
+#: src/components/TeamsAppCard.tsx
+msgid "(estimated)"
+msgstr ""
+
 #. placeholder {0}: pinned.length
 #: src/pages/model-settings/space-bots-model.tsx
 msgid "{0, plural, one {# bot has its own model:} other {# bots have their own model:}}"
@@ -158,6 +162,10 @@ msgstr "{app} 群組聊天"
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {要刪除 {name} 及其 # 個機器人嗎？} other {要刪除 {name} 及其 # 個機器人嗎？}}"
+
+#: src/components/TeamsAppCard.tsx
+msgid "{botName} leaves every Teams chat it's in; Bot joins those chats instead."
+msgstr ""
 
 #: src/pages/shell/computer-view.tsx
 msgid "{botName}’s computer"
@@ -1116,6 +1124,10 @@ msgstr "機器人"
 msgid "Bot"
 msgstr "機器人"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Bot doesn't have permission to do this step. Ask an admin."
+msgstr ""
+
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Bot is watching, not acting"
 msgstr "機器人只觀察，不操作"
@@ -1218,6 +1230,7 @@ msgstr "無法讀取影像"
 #: src/components/ModelCredits.tsx
 #: src/components/PasskeySettings.tsx
 #: src/components/teach/TeachComputerOverlay.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/vault/VaultItemDetail.tsx
 #: src/pages/AccountSettingsOverlay.tsx
 #: src/pages/Artifacts.tsx
@@ -1976,6 +1989,7 @@ msgstr "無法連線至電腦螢幕"
 #: src/components/ConfirmIdentityDialog.tsx
 #: src/components/PasskeyOffer.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/lib/account-security.ts
 #: src/lib/sso-flow.ts
@@ -2451,6 +2465,10 @@ msgstr "無法載入此頁面。請再試一次。"
 msgid "Couldn't load your wallet"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Couldn't publish to Teams. A Teams admin needs to sign in again."
+msgstr ""
+
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Couldn't update bot style"
 msgstr ""
@@ -2514,6 +2532,10 @@ msgstr "建立你的 Rakazo"
 #: src/components/AskCard.tsx
 msgid "Created"
 msgstr "已建立"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Creating"
+msgstr ""
 
 #: src/pages/GroupPanel.tsx
 #: src/pages/shell/agent-import.tsx
@@ -2754,6 +2776,7 @@ msgstr ""
 msgid "Desktop update"
 msgstr "桌面版更新"
 
+#: src/components/TeamsAppCard.tsx
 #: src/pages/RoutineRunHistory.tsx
 #: src/pages/shell/composer-error.tsx
 msgid "Details"
@@ -2875,6 +2898,7 @@ msgid "Don’t have an account?"
 msgstr "還沒有帳號？"
 
 #: src/components/AccountDataSettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/ToolActivityDisclosure.tsx
 #: src/lib/ticket-status.ts
 #: src/pages/ActivityList.tsx
@@ -3338,6 +3362,10 @@ msgstr "正在準備"
 msgid "Git event"
 msgstr "Git 事件"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Give {botName} its own Teams app"
+msgstr ""
+
 #: src/components/InviteDialog.tsx
 msgid "Give a friend {weeks} weeks free"
 msgstr "送朋友 {weeks} 週免費"
@@ -3535,6 +3563,15 @@ msgstr "匯入代理程式"
 #: src/components/AccountDataSettings.tsx
 msgid "Import data"
 msgstr "匯入資料"
+
+#. placeholder {0}: app.chatCount
+#: src/components/TeamsAppCard.tsx
+msgid "In {0} chats"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "In {chatCount} chats"
+msgstr ""
 
 #: src/lib/ticket-status.ts
 msgid "In progress"
@@ -4073,6 +4110,14 @@ msgstr "訊息"
 #: src/lib/dictation.ts
 msgid "Microphone failed"
 msgstr "麥克風失敗"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft is still setting up {botName}'s app. This usually takes under a minute — Retry."
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft Teams"
+msgstr ""
 
 #: src/pages/model-settings/compatible-model-fields.tsx
 #: src/pages/Onboarding.tsx
@@ -5059,6 +5104,10 @@ msgstr "供應商"
 msgid "Providers"
 msgstr "供應商"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Published to catalog"
+msgstr ""
+
 #: src/components/CloudAgentCard.tsx
 msgid "Pull request"
 msgstr "Pull request"
@@ -5226,6 +5275,10 @@ msgstr "重新整理中…"
 msgid "Region"
 msgstr ""
 
+#: src/components/TeamsAppCard.tsx
+msgid "Registered"
+msgstr ""
+
 #: src/lib/user-error.ts
 msgid "Registration is closed"
 msgstr "註冊已關閉"
@@ -5258,6 +5311,7 @@ msgstr "重新載入"
 
 #: src/components/ApprovalRulesSettings.tsx
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/components/vault/LoginFieldsInput.tsx
 #: src/components/vault/VaultItemDetail.tsx
@@ -5280,6 +5334,10 @@ msgstr "移除 {0}"
 msgid "Remove {0} from the group"
 msgstr "將 {0} 移出群組"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Remove {botName} from Teams?"
+msgstr ""
+
 #: src/components/vault/VaultItemDetail.tsx
 msgid "Remove {secretName}? Bots will no longer be able to use it."
 msgstr "要移除 {secretName} 嗎？機器人將無法再使用它。"
@@ -5297,6 +5355,10 @@ msgstr "移除變化觸發器"
 #: src/pages/McpServersOverlay.tsx
 #: src/pages/PluginsOverlay.tsx
 msgid "Remove from every space?"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Remove from Teams"
 msgstr ""
 
 #: src/pages/RoutineEditor.tsx
@@ -5328,11 +5390,16 @@ msgstr ""
 msgid "Remove webhook"
 msgstr "移除 Webhook"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Removed from Teams"
+msgstr ""
+
 #: src/pages/ScratchpadSection.tsx
 msgid "Removed, but list refresh failed"
 msgstr "已移除，但清單重新整理失敗"
 
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/PluginsOverlay.tsx
 msgid "Removing…"
 msgstr "正在移除…"
@@ -5474,6 +5541,7 @@ msgstr "正在還原工作空間"
 #: src/components/integrations/plugin-marketplace.tsx
 #: src/components/integrations/skills-dialog.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/AdminAccessPage.tsx
 #: src/pages/Auth.tsx
 #: src/pages/ModelRoleSettings.tsx
@@ -5875,6 +5943,10 @@ msgstr "設定：用量"
 msgid "Setup complete"
 msgstr "設定完成"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Setup failed"
+msgstr ""
+
 #: src/pages/model-settings/compatible-model-fields.tsx
 msgid "Setup help"
 msgstr "設定說明"
@@ -6067,6 +6139,10 @@ msgstr ""
 #: src/pages/shell/agent-import.tsx
 msgid "Some settings are not imported"
 msgstr "部分設定不會匯入"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Something went wrong setting up Teams. Retry, or ask an admin."
+msgstr ""
 
 #: src/App.tsx
 #: src/lib/user-error.ts
@@ -6340,6 +6416,10 @@ msgstr "團隊"
 #: src/pages/shell/computer-view.tsx
 msgid "Team Computer"
 msgstr "團隊電腦"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Teams has no signal for this. Estimated from catalog publish time; confirmed when {botName} is first added to a chat."
+msgstr ""
 
 #: src/pages/RoutineEditor.tsx
 msgid "Teams message"
@@ -7014,6 +7094,10 @@ msgstr ""
 
 #: src/components/integrations/plugin-marketplace.tsx
 msgid "View source"
+msgstr ""
+
+#: src/components/TeamsAppCard.tsx
+msgid "Visible in @mentions"
 msgstr ""
 
 #: src/pages/settings-nav.ts

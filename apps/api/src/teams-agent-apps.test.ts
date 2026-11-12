@@ -3,7 +3,7 @@ import type { Actor } from "@rakazo/contracts";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentTeamsAppRecord, TeamsAgentAppsDeps } from "./teams-agent-apps.js";
-import { mountTeamsAgentAppRoutes, storeFindApp } from "./teams-agent-apps.js";
+import { mountTeamsAgentAppRoutes, storeFindApp, teamsAppUserMessage } from "./teams-agent-apps.js";
 
 const owner: Actor = {
   userId: "user-owner",
@@ -110,6 +110,8 @@ describe("teams agent app routes", () => {
         chatCount: 1,
         chats: [{ chatId: "chat-a", installedAt: "2026-11-11T11:30:00.000Z" }],
         lastError: null,
+        userMessage: null,
+        userMessageKind: null,
         publishedAt: "2026-11-11T11:00:00.000Z",
         firstInstalledAt: null,
       },
@@ -199,5 +201,52 @@ describe("teams agent app routes over the provisioner", () => {
     expect(found?.status).toBe("failed");
     expect(found && visibilityStatus(found, now, 0).step).toBe("failed");
     expect(await storeFindApp(store)("bot-other")).toBeNull();
+  });
+});
+
+describe("teamsAppUserMessage", () => {
+  it.each([
+    [
+      "read app role assignments failed (404 Request_ResourceNotFound): Resource 'sp-1' does not exist or one of its queried reference-property objects are not present.",
+      "replicating",
+    ],
+    ["grant Chat.Create failed (400 Request_ResourceNotFound): nope", "replicating"],
+    ["catalog token failed: AADSTS700082 The refresh token has expired", "catalog_auth"],
+    ["publish Teams catalog app failed (403 Forbidden): denied", "catalog_auth"],
+    ["read Teams catalog app failed (401 InvalidAuthenticationToken): x", "catalog_auth"],
+    [
+      "create Entra app failed (403 Authorization_RequestDenied): Insufficient privileges",
+      "forbidden",
+    ],
+    ["create Azure Bot failed (403 AuthorizationFailed): no", "forbidden"],
+    ["app role assignment refused: provisioner is not an owner of the Entra app", "forbidden"],
+    ["create Azure Bot failed (409 Conflict): taken", "unknown"],
+  ] as const)("maps %s", (lastError, kind) => {
+    const mapped = teamsAppUserMessage(lastError);
+    expect(mapped?.kind).toBe(kind);
+    expect(mapped?.message).not.toContain(lastError.slice(0, 20));
+  });
+
+  it("is null without an error, and plain English otherwise", () => {
+    expect(teamsAppUserMessage(null)).toBeNull();
+    expect(teamsAppUserMessage("Request_ResourceNotFound")?.message).toBe(
+      "Microsoft is still setting up this agent's app. This usually takes under a minute — Retry.",
+    );
+    expect(teamsAppUserMessage("weird")?.message).toBe(
+      "Something went wrong setting up Teams. Retry, or ask an admin.",
+    );
+  });
+
+  it("returns userMessage from GET next to the redacted detail", async () => {
+    const { call } = setup({
+      app: record({
+        status: "failed",
+        lastError: "create Entra app failed (403 Authorization_RequestDenied): x",
+      }),
+    });
+    const body = await (await call("GET")).json();
+    expect(body.app.userMessage).toBe("Bot doesn't have permission to do this step. Ask an admin.");
+    expect(body.app.userMessageKind).toBe("forbidden");
+    expect(body.app.lastError).toContain("Authorization_RequestDenied");
   });
 });

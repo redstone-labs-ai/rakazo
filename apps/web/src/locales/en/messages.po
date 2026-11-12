@@ -17,6 +17,10 @@ msgstr ""
 msgid " (unread)"
 msgstr " (unread)"
 
+#: src/components/TeamsAppCard.tsx
+msgid "(estimated)"
+msgstr "(estimated)"
+
 #. placeholder {0}: pinned.length
 #: src/pages/model-settings/space-bots-model.tsx
 msgid "{0, plural, one {# bot has its own model:} other {# bots have their own model:}}"
@@ -157,6 +161,10 @@ msgstr "{app} group chat"
 #: src/pages/shell/dialogs.tsx
 msgid "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
 msgstr "{botCount, plural, one {Delete {name} and its # bot?} other {Delete {name} and its # bots?}}"
+
+#: src/components/TeamsAppCard.tsx
+msgid "{botName} leaves every Teams chat it's in; Bot joins those chats instead."
+msgstr "{botName} leaves every Teams chat it's in; Bot joins those chats instead."
 
 #: src/pages/shell/computer-view.tsx
 msgid "{botName}’s computer"
@@ -1115,6 +1123,10 @@ msgstr "Bot"
 msgid "Bot"
 msgstr "Bot"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Bot doesn't have permission to do this step. Ask an admin."
+msgstr "Bot doesn't have permission to do this step. Ask an admin."
+
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Bot is watching, not acting"
 msgstr "Bot is watching, not acting"
@@ -1217,6 +1229,7 @@ msgstr "Can't read images"
 #: src/components/ModelCredits.tsx
 #: src/components/PasskeySettings.tsx
 #: src/components/teach/TeachComputerOverlay.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/vault/VaultItemDetail.tsx
 #: src/pages/AccountSettingsOverlay.tsx
 #: src/pages/Artifacts.tsx
@@ -1975,6 +1988,7 @@ msgstr "Could not connect to the computer screen"
 #: src/components/ConfirmIdentityDialog.tsx
 #: src/components/PasskeyOffer.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/lib/account-security.ts
 #: src/lib/sso-flow.ts
@@ -2450,6 +2464,10 @@ msgstr "Couldn't load this page. Try again."
 msgid "Couldn't load your wallet"
 msgstr "Couldn't load your wallet"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Couldn't publish to Teams. A Teams admin needs to sign in again."
+msgstr "Couldn't publish to Teams. A Teams admin needs to sign in again."
+
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Couldn't update bot style"
 msgstr "Couldn't update bot style"
@@ -2513,6 +2531,10 @@ msgstr "Create your Rakazo"
 #: src/components/AskCard.tsx
 msgid "Created"
 msgstr "Created"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Creating"
+msgstr "Creating"
 
 #: src/pages/GroupPanel.tsx
 #: src/pages/shell/agent-import.tsx
@@ -2753,6 +2775,7 @@ msgstr "Desktop ID"
 msgid "Desktop update"
 msgstr "Desktop update"
 
+#: src/components/TeamsAppCard.tsx
 #: src/pages/RoutineRunHistory.tsx
 #: src/pages/shell/composer-error.tsx
 msgid "Details"
@@ -2874,6 +2897,7 @@ msgid "Don’t have an account?"
 msgstr "Don’t have an account?"
 
 #: src/components/AccountDataSettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/ToolActivityDisclosure.tsx
 #: src/lib/ticket-status.ts
 #: src/pages/ActivityList.tsx
@@ -3337,6 +3361,10 @@ msgstr "Getting ready"
 msgid "Git event"
 msgstr "Git event"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Give {botName} its own Teams app"
+msgstr "Give {botName} its own Teams app"
+
 #: src/components/InviteDialog.tsx
 msgid "Give a friend {weeks} weeks free"
 msgstr "Give a friend {weeks} weeks free"
@@ -3534,6 +3562,15 @@ msgstr "Import an agent"
 #: src/components/AccountDataSettings.tsx
 msgid "Import data"
 msgstr "Import data"
+
+#. placeholder {0}: app.chatCount
+#: src/components/TeamsAppCard.tsx
+msgid "In {0} chats"
+msgstr "In {0} chats"
+
+#: src/components/TeamsAppCard.tsx
+msgid "In {chatCount} chats"
+msgstr "In {chatCount} chats"
 
 #: src/lib/ticket-status.ts
 msgid "In progress"
@@ -4072,6 +4109,14 @@ msgstr "Messaging"
 #: src/lib/dictation.ts
 msgid "Microphone failed"
 msgstr "Microphone failed"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft is still setting up {botName}'s app. This usually takes under a minute — Retry."
+msgstr "Microsoft is still setting up {botName}'s app. This usually takes under a minute — Retry."
+
+#: src/components/TeamsAppCard.tsx
+msgid "Microsoft Teams"
+msgstr "Microsoft Teams"
 
 #: src/pages/model-settings/compatible-model-fields.tsx
 #: src/pages/Onboarding.tsx
@@ -5058,6 +5103,10 @@ msgstr "Provider"
 msgid "Providers"
 msgstr "Providers"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Published to catalog"
+msgstr "Published to catalog"
+
 #: src/components/CloudAgentCard.tsx
 msgid "Pull request"
 msgstr "Pull request"
@@ -5225,6 +5274,10 @@ msgstr "Refreshing…"
 msgid "Region"
 msgstr "Region"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Registered"
+msgstr "Registered"
+
 #: src/lib/user-error.ts
 msgid "Registration is closed"
 msgstr "Registration is closed"
@@ -5257,6 +5310,7 @@ msgstr "Reload"
 
 #: src/components/ApprovalRulesSettings.tsx
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/components/TrustedLinkSitesSettings.tsx
 #: src/components/vault/LoginFieldsInput.tsx
 #: src/components/vault/VaultItemDetail.tsx
@@ -5279,6 +5333,10 @@ msgstr "Remove {0}"
 msgid "Remove {0} from the group"
 msgstr "Remove {0} from the group"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Remove {botName} from Teams?"
+msgstr "Remove {botName} from Teams?"
+
 #: src/components/vault/VaultItemDetail.tsx
 msgid "Remove {secretName}? Bots will no longer be able to use it."
 msgstr "Remove {secretName}? Bots will no longer be able to use it."
@@ -5297,6 +5355,10 @@ msgstr "Remove change trigger"
 #: src/pages/PluginsOverlay.tsx
 msgid "Remove from every space?"
 msgstr "Remove from every space?"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Remove from Teams"
+msgstr "Remove from Teams"
 
 #: src/pages/RoutineEditor.tsx
 msgid "Remove Git event"
@@ -5327,11 +5389,16 @@ msgstr "Remove skills"
 msgid "Remove webhook"
 msgstr "Remove webhook"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Removed from Teams"
+msgstr "Removed from Teams"
+
 #: src/pages/ScratchpadSection.tsx
 msgid "Removed, but list refresh failed"
 msgstr "Removed, but list refresh failed"
 
 #: src/components/integrations/plugin-marketplace.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/PluginsOverlay.tsx
 msgid "Removing…"
 msgstr "Removing…"
@@ -5473,6 +5540,7 @@ msgstr "Restoring your workspace"
 #: src/components/integrations/plugin-marketplace.tsx
 #: src/components/integrations/skills-dialog.tsx
 #: src/components/PasskeySettings.tsx
+#: src/components/TeamsAppCard.tsx
 #: src/pages/AdminAccessPage.tsx
 #: src/pages/Auth.tsx
 #: src/pages/ModelRoleSettings.tsx
@@ -5874,6 +5942,10 @@ msgstr "Settings: Usage"
 msgid "Setup complete"
 msgstr "Setup complete"
 
+#: src/components/TeamsAppCard.tsx
+msgid "Setup failed"
+msgstr "Setup failed"
+
 #: src/pages/model-settings/compatible-model-fields.tsx
 msgid "Setup help"
 msgstr "Setup help"
@@ -6066,6 +6138,10 @@ msgstr "Some plugins could not be loaded."
 #: src/pages/shell/agent-import.tsx
 msgid "Some settings are not imported"
 msgstr "Some settings are not imported"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Something went wrong setting up Teams. Retry, or ask an admin."
+msgstr "Something went wrong setting up Teams. Retry, or ask an admin."
 
 #: src/App.tsx
 #: src/lib/user-error.ts
@@ -6339,6 +6415,10 @@ msgstr "Team"
 #: src/pages/shell/computer-view.tsx
 msgid "Team Computer"
 msgstr "Team Computer"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Teams has no signal for this. Estimated from catalog publish time; confirmed when {botName} is first added to a chat."
+msgstr "Teams has no signal for this. Estimated from catalog publish time; confirmed when {botName} is first added to a chat."
 
 #: src/pages/RoutineEditor.tsx
 msgid "Teams message"
@@ -7014,6 +7094,10 @@ msgstr "View all"
 #: src/components/integrations/plugin-marketplace.tsx
 msgid "View source"
 msgstr "View source"
+
+#: src/components/TeamsAppCard.tsx
+msgid "Visible in @mentions"
+msgstr "Visible in @mentions"
 
 #: src/pages/settings-nav.ts
 #: src/pages/shell/bot-panel.tsx

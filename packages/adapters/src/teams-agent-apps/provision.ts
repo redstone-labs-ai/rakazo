@@ -12,6 +12,7 @@ import {
   stringField,
 } from "./http.js";
 import { agentIcons, buildAgentTeamsManifest, buildManifestZip } from "./manifest.js";
+import { createdRecently, withReplicationRetry } from "./replication.js";
 import type {
   AgentTeamsAppPatch,
   AgentTeamsAppRecord,
@@ -186,25 +187,38 @@ async function runProvision(
 
   // 1. Entra app, single-tenant, tagged. The unique name makes a repeated create return the same
   // app; the provisioner becomes its owner, which the role guard later checks.
+  // Objects this run created (or the row created within the replication window) may not be
+  // visible to Graph yet; calls on them retry replication-lag 404s only.
+  let justCreated = createdRecently(app.createdAt, now());
+  const retry = <T>(fn: () => Promise<T>) =>
+    withReplicationRetry(fn, {
+      recent: justCreated,
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      ...(deps.replicationDelaysMs ? { delays: deps.replicationDelaysMs } : {}),
+    });
   if (!app.entraAppId || !app.entraObjectId) {
     const created = await upsertEntraApp(deps, await graph(), input);
+    justCreated = true;
     app = await save({ entraAppId: created.appId, entraObjectId: created.objectId });
   }
   const entraAppId = required(app.entraAppId, "entraAppId");
   const entraObjectId = required(app.entraObjectId, "entraObjectId");
 
   // 2. Service principal (needed for tokens and app role grants).
-  await ensureServicePrincipal(deps, await graph(), entraAppId);
+  const sp = await retry(async () => ensureServicePrincipal(deps, await graph(), entraAppId));
+  if (sp.created) justCreated = true;
 
   // 3. Password credential, stored only in Key Vault.
   if (!app.secretRef) {
-    const added = await msCall(deps.fetch, {
-      method: "POST",
-      url: `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}/addPassword`,
-      token: await graph(),
-      body: { passwordCredential: { displayName: "rakazo-teams-bot" } },
-      label: "add Entra app password",
-    });
+    const added = await retry(async () =>
+      msCall(deps.fetch, {
+        method: "POST",
+        url: `${GRAPH_BASE}/applications/${encodeURIComponent(entraObjectId)}/addPassword`,
+        token: await graph(),
+        body: { passwordCredential: { displayName: "rakazo-teams-bot" } },
+        label: "add Entra app password",
+      }),
+    );
     const secretText = stringField(added.json, "secretText");
     if (!secretText) throw new Error("add Entra app password returned no secret");
     const secretRef = agentSecretName(input.botId);
@@ -217,25 +231,27 @@ async function runProvision(
     const azureBotName = agentAzureBotName(input.botId);
     const arm = await deps.provisionerToken(ARM_SCOPE);
     const botUrl = azureBotUrl(deps, azureBotName);
-    await msCall(deps.fetch, {
-      method: "PUT",
-      url: `${botUrl}?api-version=${AZURE_BOT_API_VERSION}`,
-      token: arm,
-      body: {
-        location: "global",
-        kind: "azurebot",
-        sku: { name: "F0" },
-        properties: {
-          displayName: input.name,
-          description: input.description.slice(0, 512),
-          endpoint: config.messagingEndpoint,
-          msaAppId: entraAppId,
-          msaAppType: "SingleTenant",
-          msaAppTenantId: config.tenantId,
+    await retry(() =>
+      msCall(deps.fetch, {
+        method: "PUT",
+        url: `${botUrl}?api-version=${AZURE_BOT_API_VERSION}`,
+        token: arm,
+        body: {
+          location: "global",
+          kind: "azurebot",
+          sku: { name: "F0" },
+          properties: {
+            displayName: input.name,
+            description: input.description.slice(0, 512),
+            endpoint: config.messagingEndpoint,
+            msaAppId: entraAppId,
+            msaAppType: "SingleTenant",
+            msaAppTenantId: config.tenantId,
+          },
         },
-      },
-      label: "create Azure Bot",
-    });
+        label: "create Azure Bot",
+      }),
+    );
     await msCall(deps.fetch, {
       method: "PUT",
       url: `${botUrl}/channels/MsTeamsChannel?api-version=${AZURE_BOT_API_VERSION}`,
@@ -250,7 +266,7 @@ async function runProvision(
   }
 
   // 5. Graph app roles for the agent's own service principal, only through the guard.
-  await assignAgentGraphAppRoles(deps, input.botId);
+  await assignAgentGraphAppRoles(deps, input.botId, { justCreated });
 
   // 6–7. Manifest and org catalog publish, with the delegated admin token.
   if (!app.catalogAppId) {
@@ -348,7 +364,7 @@ async function ensureServicePrincipal(
   deps: AgentTeamsAppsDeps,
   token: string,
   appId: string,
-): Promise<string> {
+): Promise<{ id: string; created: boolean }> {
   const found = await msCall(deps.fetch, {
     method: "GET",
     url: `${GRAPH_BASE}/servicePrincipals(appId='${encodeURIComponent(appId)}')?$select=id`,
@@ -357,7 +373,7 @@ async function ensureServicePrincipal(
     label: "read service principal",
   });
   const existing = stringField(found.json, "id");
-  if (existing) return existing;
+  if (existing) return { id: existing, created: false };
   const created = await msCall(deps.fetch, {
     method: "POST",
     url: `${GRAPH_BASE}/servicePrincipals`,
@@ -367,7 +383,7 @@ async function ensureServicePrincipal(
   });
   const id = stringField(created.json, "id");
   if (!id) throw new Error("create service principal returned no id");
-  return id;
+  return { id, created: true };
 }
 
 /** The org catalog id of the app whose manifest id is `externalId`, if it is published. */

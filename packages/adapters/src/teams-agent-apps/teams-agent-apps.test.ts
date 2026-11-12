@@ -36,6 +36,8 @@ interface Call {
 function fakeMicrosoft(
   options: {
     failOnce?: (call: Call) => boolean;
+    /** Answers a call before the default fake does, e.g. replication-lag 404s. */
+    intercept?: (call: Call) => Response | undefined;
     sharedInstalledIn?: string[];
     /** Owners Graph lists for the agent's Entra app; default: the provisioner. */
     owners?: string[];
@@ -67,6 +69,8 @@ function fakeMicrosoft(
       failed = true;
       return json(503, { error: { code: "ServiceUnavailable", message: "try later" } });
     }
+    const intercepted = options.intercept?.(call);
+    if (intercepted) return intercepted;
     if (url.includes("/applications(uniqueName=")) {
       entraBody = asObject(body);
       return json(201, { id: OBJECT_ID, appId: APP_ID });
@@ -319,6 +323,77 @@ describe("provisionAgentTeamsApp", () => {
     expect(count((call) => call.url.includes("/addPassword"))).toBe(1);
     expect(secrets.store.set).toHaveBeenCalledTimes(1);
     expect(count((call) => call.url.endsWith("/appCatalogs/teamsApps"))).toBe(1);
+  });
+});
+
+describe("replication lag", () => {
+  const isAssignmentsRead = (call: Call) =>
+    call.method === "GET" && call.url.endsWith(`/servicePrincipals/${SP_ID}/appRoleAssignments`);
+  const notFound = () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "Request_ResourceNotFound",
+          message: `Resource '${SP_ID}' does not exist or one of its queried reference-property objects are not present.`,
+        },
+      }),
+      { status: 404 },
+    );
+
+  it("retries a just-created principal's 404 and completes", async () => {
+    let lagging = 2;
+    const ms = fakeMicrosoft({
+      intercept: (call) => (isAssignmentsRead(call) && lagging-- > 0 ? notFound() : undefined),
+    });
+    const { deps } = setup(ms);
+    const sleeps: number[] = [];
+    deps.sleep = async (delay) => {
+      sleeps.push(delay);
+    };
+    const app = await provisionAgentTeamsApp(INPUT, deps);
+    expect(app.status).toBe("published");
+    expect(sleeps).toEqual([2_000, 4_000]);
+    expect(ms.calls.filter(isAssignmentsRead)).toHaveLength(3);
+  });
+
+  it("fails with lastError once the retry budget is spent", async () => {
+    const ms = fakeMicrosoft({
+      intercept: (call) => (isAssignmentsRead(call) ? notFound() : undefined),
+    });
+    const { deps, store } = setup(ms);
+    const sleeps: number[] = [];
+    deps.sleep = async (delay) => {
+      sleeps.push(delay);
+    };
+    await expect(provisionAgentTeamsApp(INPUT, deps)).rejects.toThrow(
+      /read app role assignments failed \(404 Request_ResourceNotFound/,
+    );
+    expect(sleeps).toEqual([2_000, 4_000, 8_000, 16_000, 30_000]);
+    expect(ms.calls.filter(isAssignmentsRead)).toHaveLength(6);
+    const failed = await store.findByBotId("bot_tony");
+    expect(failed?.status).toBe("failed");
+    expect(failed?.lastError).toContain("Request_ResourceNotFound");
+    expect(failed?.lastError).not.toContain("provisioner:");
+    expect(ms.assignedRoles.size).toBe(0);
+  });
+
+  it("does not retry a 403", async () => {
+    const ms = fakeMicrosoft({
+      intercept: (call) =>
+        isAssignmentsRead(call)
+          ? new Response(
+              JSON.stringify({ error: { code: "Authorization_RequestDenied", message: "denied" } }),
+              { status: 403 },
+            )
+          : undefined,
+    });
+    const { deps, store } = setup(ms);
+    const sleep = vi.fn(async () => undefined);
+    deps.sleep = sleep;
+    await expect(provisionAgentTeamsApp(INPUT, deps)).rejects.toThrow(/403/);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(ms.calls.filter(isAssignmentsRead)).toHaveLength(1);
+    expect((await store.findByBotId("bot_tony"))?.status).toBe("failed");
   });
 });
 

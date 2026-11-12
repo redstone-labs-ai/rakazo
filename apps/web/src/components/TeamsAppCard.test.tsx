@@ -31,6 +31,8 @@ function app(overrides: Partial<App> = {}): App {
     chatCount: 0,
     chats: [],
     lastError: null,
+    userMessage: null,
+    userMessageKind: null,
     publishedAt: null,
     firstInstalledAt: null,
     ...overrides,
@@ -160,12 +162,23 @@ describe("TeamsAppCard", () => {
   it("shows the failure and retries", async () => {
     state = {
       enabled: true,
-      app: app({ status: "failed", step: "registered", lastError: "Catalog rejected the app" }),
+      app: app({
+        status: "failed",
+        step: "registered",
+        lastError: "read app role assignments failed (404 Request_ResourceNotFound): gone",
+        userMessage: "Microsoft is still setting up this agent's app.",
+        userMessageKind: "replicating",
+      }),
     };
     await render();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "Catalog rejected the app",
+    expect(container.querySelector('[data-testid="teams-app-error"]')?.textContent).toBe(
+      "Microsoft is still setting up Tony's app. This usually takes under a minute — Retry.",
     );
+    // The raw detail sits behind a collapsed "Details" disclosure, not in the message.
+    expect(container.querySelector('[data-testid="teams-app-error"]')?.textContent).not.toContain(
+      "Request_ResourceNotFound",
+    );
+    expect(container.textContent).toContain("Details");
     await act(async () => button("Retry")?.click());
     expect(calls).toContainEqual({ url: "/api/bots/bot-1/teams-app/retry", method: "POST" });
   });
@@ -173,12 +186,18 @@ describe("TeamsAppCard", () => {
   it("shows the provisioner's failed step with its error and a retry, without a stepper", async () => {
     state = {
       enabled: true,
-      app: app({ status: "failed", step: "failed", lastError: "create Azure Bot failed (409)" }),
+      app: app({
+        status: "failed",
+        step: "failed",
+        lastError: "create Azure Bot failed (409)",
+        userMessage: "Something went wrong setting up Teams. Retry, or ask an admin.",
+        userMessageKind: "unknown",
+      }),
     };
     await render();
     expect(stepStatuses()).toEqual([]);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "create Azure Bot failed (409)",
+    expect(container.querySelector('[data-testid="teams-app-error"]')?.textContent).toBe(
+      "Something went wrong setting up Teams. Retry, or ask an admin.",
     );
     expect(button("Retry")).toBeDefined();
   });
