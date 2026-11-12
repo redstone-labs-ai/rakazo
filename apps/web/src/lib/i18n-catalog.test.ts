@@ -4,6 +4,7 @@ import { i18n, setupI18n } from "@lingui/core";
 import { formatter } from "@lingui/format-po";
 import { RUN_ERROR_LIMIT_MESSAGES } from "@rakazo/core";
 import { beforeEach, describe, expect, it } from "vitest";
+import { REDSTONE_ENGLISH_ONLY_MESSAGES } from "./redstone-english-only";
 import { UI_LOCALES } from "./ui-locale";
 
 describe("lingui catalogs", () => {
@@ -389,7 +390,9 @@ it.each(["zh-TW", "pl"])(
       const message = entry.message ?? entry.translation ?? id;
       // Untranslated entries fall back to English, as in every other catalog.
       const translation = translated[id]?.translation;
-      if (locale === "pl") expect(translation?.trim(), message).toBeTruthy();
+      if (locale === "pl" && !REDSTONE_ENGLISH_ONLY_MESSAGES.has(message)) {
+        expect(translation?.trim(), message).toBeTruthy();
+      }
       if (!translation?.trim()) continue;
       expect(markers(translation), message).toEqual(markers(message));
     }

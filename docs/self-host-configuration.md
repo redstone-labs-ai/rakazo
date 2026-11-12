@@ -88,6 +88,7 @@ ceiling because Node's HTTP client stops waiting at that point on its own.
 | `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
 | `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |
 | `RAKAZO_HIDDEN_MARKETPLACE_PLUGINS` | none | Plugins the marketplace leaves out, separated by commas or spaces, such as `owner/repo#plugins/mail` on GitHub or a full source URL. A trailing `*` matches every source that starts with the rest. Hidden plugins cannot be previewed or installed; ones already installed stay until people remove them. Entries that are not plugin sources are logged and ignored. Set it on the API. |
+| `RAKAZO_UI_LOCALES` | every language | Web languages people can use, separated by commas or spaces, such as `en` or `en,de`. Other languages fall back to English (or the first listed) whatever the browser, saved choice or `VITE_DEFAULT_UI_LOCALE` says, and Settings hides the language picker when only one is listed. Unknown codes are logged and ignored. Set it on the API. |
 
 ## New account defaults
 

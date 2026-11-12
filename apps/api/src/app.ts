@@ -966,6 +966,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       passkeyRpId: auth.passkeyRpId,
       nativePasskeys: nativePasskeys(env, auth.passkeyRpId),
       crispWebsiteId: billing ? (env.crispWebsiteId ?? null) : null,
+      ...(env.uiLocales ? { uiLocales: env.uiLocales } : {}),
     } satisfies AuthCapabilities);
   });
   mountAppAssociation(app, env);

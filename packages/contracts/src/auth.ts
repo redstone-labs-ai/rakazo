@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AppLocaleSchema } from "./domain.js";
 
 export const authCapabilitiesSchema = z.object({
   sso: z
@@ -19,6 +20,8 @@ export const authCapabilitiesSchema = z.object({
   nativePasskeys: z.object({ ios: z.boolean(), android: z.boolean() }).optional(),
   /** Crisp chat on the paywall; null or omitted when the deployment offers none. */
   crispWebsiteId: z.string().min(1).nullable().optional(),
+  /** Web UI languages the deployment offers; omitted by older servers, which means all of them. */
+  uiLocales: z.array(AppLocaleSchema).min(1).optional(),
 });
 export type AuthCapabilities = z.infer<typeof authCapabilitiesSchema>;
 

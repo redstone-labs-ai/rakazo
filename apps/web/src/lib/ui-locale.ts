@@ -6,6 +6,62 @@ export const UI_LOCALES = AppLocaleSchema.options;
 export type UiLocale = (typeof UI_LOCALES)[number];
 
 export const UI_LOCALE_STORAGE_KEY = "rakazo.uiLocale";
+/** Last languages the server offered, so a slow or failed capabilities fetch keeps the limit. */
+export const ALLOWED_UI_LOCALES_STORAGE_KEY = "rakazo.allowedUiLocales";
+
+let allowedUiLocales: readonly UiLocale[] = UI_LOCALES;
+
+/** Languages this deployment offers (`uiLocales` from the server); every language by default. */
+export function getAllowedUiLocales(): readonly UiLocale[] {
+  return allowedUiLocales;
+}
+
+/**
+ * Limit the languages the UI can activate. `undefined` or an empty list offers every
+ * language. The list is remembered so the next load applies it before the server answers.
+ */
+export function setAllowedUiLocales(
+  locales: readonly string[] | null | undefined,
+  storage: Pick<Storage, "setItem" | "removeItem"> | null = typeof localStorage !== "undefined"
+    ? localStorage
+    : null,
+): void {
+  const known = (locales ?? []).filter((locale): locale is UiLocale =>
+    UI_LOCALES.some((supported) => supported === locale),
+  );
+  allowedUiLocales = known.length ? known : UI_LOCALES;
+  if (!storage) return;
+  try {
+    if (known.length) storage.setItem(ALLOWED_UI_LOCALES_STORAGE_KEY, known.join(","));
+    else storage.removeItem(ALLOWED_UI_LOCALES_STORAGE_KEY);
+  } catch {
+    // Ignore quota / private-mode failures; the in-memory limit still applies.
+  }
+}
+
+/** Apply the limit remembered from the last server answer. */
+export function restoreAllowedUiLocales(
+  storage: Pick<Storage, "getItem"> | null = typeof localStorage !== "undefined"
+    ? localStorage
+    : null,
+): void {
+  let stored: string | null = null;
+  try {
+    stored = storage?.getItem(ALLOWED_UI_LOCALES_STORAGE_KEY) ?? null;
+  } catch {
+    stored = null;
+  }
+  const known = (stored ?? "")
+    .split(",")
+    .filter((locale): locale is UiLocale => UI_LOCALES.some((supported) => supported === locale));
+  allowedUiLocales = known.length ? known : UI_LOCALES;
+}
+
+/** The locale itself when the deployment offers it, else English, else the first offered. */
+export function allowedUiLocale(locale: UiLocale): UiLocale {
+  if (allowedUiLocales.includes(locale)) return locale;
+  return allowedUiLocales.includes("en") ? "en" : (allowedUiLocales[0] ?? "en");
+}
 
 export const UI_LOCALE_LABELS: Record<UiLocale, string> = {
   en: "English",
@@ -64,9 +120,13 @@ export type ResolveUiLocaleOptions = {
 
 /**
  * Order: saved choice (`localStorage`) → `VITE_DEFAULT_UI_LOCALE` →
- * `navigator.language` → English.
+ * `navigator.language` → English, limited to the languages the deployment offers.
  */
 export function resolveUiLocale(options: ResolveUiLocaleOptions = {}): UiLocale {
+  return allowedUiLocale(preferredUiLocale(options));
+}
+
+function preferredUiLocale(options: ResolveUiLocaleOptions): UiLocale {
   const stored =
     options.stored !== undefined
       ? options.stored

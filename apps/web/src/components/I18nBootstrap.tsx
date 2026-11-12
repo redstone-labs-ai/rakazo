@@ -4,8 +4,9 @@ import { useLingui } from "@lingui/react/macro";
 import { InputRevealLabelsProvider } from "@rakazo/ui-web";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { fetchAuthCapabilities } from "../lib/auth-capabilities";
 import { bootstrapI18n, getActiveUiLocale } from "../lib/i18n";
-import { resolveUiLocale } from "../lib/ui-locale";
+import { resolveUiLocale, restoreAllowedUiLocales, setAllowedUiLocales } from "../lib/ui-locale";
 import { MarkdownChrome } from "./markdown-copy";
 
 export function I18nBootstrap({ children }: { children: ReactNode }) {
@@ -13,10 +14,18 @@ export function I18nBootstrap({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    // activateUiLocale already falls back to English on catalog failure.
-    void bootstrapI18n(resolveUiLocale()).finally(() => {
-      if (!cancelled) setReady(true);
-    });
+    // The server says which languages this deployment offers; until it answers (or if it
+    // cannot), the last answer applies. activateUiLocale falls back to English on failure.
+    restoreAllowedUiLocales();
+    void fetchAuthCapabilities()
+      .then(
+        (capabilities) => setAllowedUiLocales(capabilities.uiLocales),
+        () => undefined,
+      )
+      .then(() => bootstrapI18n(resolveUiLocale()))
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
     return () => {
       cancelled = true;
     };
