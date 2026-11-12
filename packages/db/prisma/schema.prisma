@@ -2490,34 +2490,3 @@ model CapabilityInstallSpace {
   @@index([spaceId, userId])
   @@map("capability_install_spaces")
 }
-
-// Spike (router): compile-time copy of the provisioner's models. The provisioner's schema and
-// migration win on merge.
-model AgentTeamsApp {
-  id               String           @id @default(cuid())
-  botId            String           @unique
-  status           String
-  entraAppId       String?          @unique
-  secretRef        String?
-  catalogAppId     String?
-  publishedAt      DateTime?
-  firstInstalledAt DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  chats            AgentTeamsChat[]
-
-  @@map("agent_teams_apps")
-}
-
-model AgentTeamsChat {
-  id          String        @id @default(cuid())
-  agentAppId  String
-  agentApp    AgentTeamsApp @relation(fields: [agentAppId], references: [id], onDelete: Cascade)
-  chatId      String
-  installId   String?
-  installedAt DateTime      @default(now())
-  removedAt   DateTime?
-
-  @@unique([agentAppId, chatId])
-  @@map("agent_teams_chats")
-}

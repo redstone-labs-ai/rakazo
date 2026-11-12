@@ -87,6 +87,7 @@ import {
   piSessionsRoot,
   prismaAgentTeamsApps,
   prismaAgentTeamsChatInstalls,
+  refreshAgentTeamsPlatforms,
   RunJobPublisher,
   RunStarter,
   reconcileCloudAgents,
@@ -482,6 +483,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       ? new ChatSdkMessagingSurface(messagingPlatforms)
       : undefined);
   // Agent Teams apps: each agent's own Teams app, created at runtime, mounted from the database.
+  // Undefined while TEAMS_AGENT_APPS_ENABLED is off or its config is missing.
+  const teamsAgentAppsDeps = teamsAgentAppsFromEnv(process.env, prisma);
+  if (teamsAgentAppsDeps) teamsAgentAppsDeps.onPublished = () => refreshAgentTeamsPlatforms();
   const teamsAgentApps =
     env.teamsAgentAppsEnabled &&
     env.teamsAppTenantId &&
@@ -491,7 +495,10 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           tenantId: env.teamsAppTenantId,
           envBots: env.teamsAgentBots ?? [],
           loadApps: prismaAgentTeamsApps(prisma),
-          readSecret: agentTeamsSecretReader ?? ((ref) => secrets.load(ref, { recordId: ref })),
+          // The provisioner writes app passwords to Key Vault, so the router reads them there.
+          readSecret:
+            agentTeamsSecretReader ??
+            (teamsAgentAppsDeps ? (ref) => teamsAgentAppsDeps.secrets.get(ref) : async () => undefined),
           installs: prismaAgentTeamsChatInstalls(prisma),
         })
       : undefined;
@@ -771,7 +778,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   });
 
   const jobHandlers = createBackgroundJobHandlers({
-    teamsAgentApps: teamsAgentAppsFromEnv(process.env, prisma),
+    teamsAgentApps: teamsAgentAppsDeps,
     executor,
     prisma,
     sandbox,

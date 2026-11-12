@@ -1,8 +1,14 @@
 import type { PrismaClient } from "@rakazo/db";
+import { runAsSystem } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import type { MessagingPlatform } from "./chat-sdk-surface.js";
 import type { TeamsAgentBot } from "./teams-messaging.js";
+import { markChatRemoved, recordChatInstall } from "./teams-agent-apps/provision.js";
+import { prismaAgentTeamsAppStore } from "./teams-agent-apps/store.js";
 import { teamsAgentProvider, teamsPlatform } from "./teams-messaging.js";
+
+/** One TEAMS_AGENT_APPS_ENABLED check, shared with the provisioner. */
+export { teamsAgentAppsEnabled } from "./teams-agent-apps/env.js";
 
 /**
  * Agent Teams apps (TEAMS_AGENT_APPS_ENABLED): every agent whose own Teams app the provisioner
@@ -255,48 +261,29 @@ export async function refreshAgentTeamsPlatforms(): Promise<void> {
   await active?.refresh();
 }
 
-/** True when TEAMS_AGENT_APPS_ENABLED turns the feature on. */
-export function teamsAgentAppsEnabled(env: Record<string, string | undefined>): boolean {
-  return env.TEAMS_AGENT_APPS_ENABLED?.trim().toLowerCase() === "true";
-}
-
 /** Loads mountable rows from `agent_teams_apps`. */
 export function prismaAgentTeamsApps(prisma: PrismaClient): () => Promise<AgentTeamsAppRow[]> {
   return () =>
-    prisma.agentTeamsApp.findMany({
-      where: { status: { in: [...MOUNTABLE_AGENT_TEAMS_APP_STATUSES] } },
-      select: { id: true, botId: true, status: true, entraAppId: true, secretRef: true },
-    });
+    runAsSystem("mount agent Teams apps", () =>
+      prisma.agentTeamsApp.findMany({
+        where: { status: { in: [...MOUNTABLE_AGENT_TEAMS_APP_STATUSES] } },
+        select: { id: true, botId: true, status: true, entraAppId: true, secretRef: true },
+      }),
+    );
 }
 
 /**
- * Spike stand-in for the provisioner's `recordChatInstall` (packages/adapters/src/teams-agent-apps/):
- * upserts the chat row, and the app's first install moves it to "visible". The provisioner's
- * implementation replaces this on merge.
+ * Install bookkeeping backed by the provisioner's `recordChatInstall` / `markChatRemoved`: the
+ * chat row is upserted and the app's first install moves "published" to "visible".
  */
 export function prismaAgentTeamsChatInstalls(prisma: PrismaClient): AgentTeamsChatInstalls {
+  const store = prismaAgentTeamsAppStore(prisma);
   return {
     async recordChatInstall(agentAppId, chatId, installId) {
-      const now = new Date();
-      await prisma.agentTeamsChat.upsert({
-        where: { agentAppId_chatId: { agentAppId, chatId } },
-        create: { agentAppId, chatId, installId, installedAt: now },
-        update: { removedAt: null, ...(installId ? { installId } : {}) },
-      });
-      await prisma.agentTeamsApp.updateMany({
-        where: { id: agentAppId, firstInstalledAt: null },
-        data: { firstInstalledAt: now },
-      });
-      await prisma.agentTeamsApp.updateMany({
-        where: { id: agentAppId, status: "published" },
-        data: { status: "visible" },
-      });
+      await recordChatInstall(agentAppId, chatId, installId, { store });
     },
     async markChatRemoved(agentAppId, chatId) {
-      await prisma.agentTeamsChat.updateMany({
-        where: { agentAppId, chatId, removedAt: null },
-        data: { removedAt: new Date() },
-      });
+      await markChatRemoved(agentAppId, chatId, { store });
     },
   };
 }
