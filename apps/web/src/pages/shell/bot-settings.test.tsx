@@ -84,6 +84,7 @@ vi.mock("@rakazo/ui-web", () => ({
 }));
 vi.mock("../ScratchpadSection", () => ({ ScratchpadSection: () => null }));
 vi.mock("../KnowledgeSection", () => ({ KnowledgeSection: () => null }));
+vi.mock("../../components/TeamsAppCard", () => ({ TeamsAppCard: () => null }));
 vi.mock("./avatar-studio-popover", () => ({ AvatarStudioPopover: () => null }));
 
 import { BotSettings } from "./bot-panel";

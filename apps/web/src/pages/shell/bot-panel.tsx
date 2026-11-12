@@ -44,6 +44,7 @@ import { Suspense, useEffect, useId, useRef, useState } from "react";
 import { ErrorBoundary, SectionLoadFailed } from "../../components/ErrorBoundary";
 import { InstructionSettings } from "../../components/InstructionSettings";
 import { PagesList } from "../../components/pages/PagesList";
+import { TeamsAppCard } from "../../components/TeamsAppCard";
 import { botProfilePatch } from "../../lib/bot-profile-patch";
 import { thinkingLevelLabel } from "../../lib/model-catalog";
 import { lazyComponent } from "../../lib/preload-recovery";
@@ -603,6 +604,9 @@ export function BotSettings({
               />
             </div>
           </section>
+          <ErrorBoundary fallback={<SectionLoadFailed />}>
+            <TeamsAppCard botId={bot.id} botName={bot.name} />
+          </ErrorBoundary>
           <ErrorBoundary fallback={<SectionLoadFailed />}>
             <Suspense fallback={null}>
               <ScratchpadSection botId={bot.id} />

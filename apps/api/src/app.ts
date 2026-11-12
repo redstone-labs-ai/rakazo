@@ -200,6 +200,7 @@ import {
   TEAM_CHAT_STARTUP_SHUTDOWN_MS,
   TeamChatStartupRetries,
 } from "./team-chat-startup.js";
+import { mountTeamsAgentAppRoutes, prismaOwnsBot } from "./teams-agent-apps.js";
 import { endUserDeviceSession, mountUserDeviceRoutes } from "./user-devices.js";
 import { mountVoiceHttpRoutes, transcribeInboundVoice, voiceAccountErrorStatus } from "./voice.js";
 import { mountWebhookHttpRoutes } from "./webhook.js";
@@ -1047,6 +1048,18 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   });
   mountAccountExportRoute(app, { prisma, auth, artifacts, home });
   mountAuditExportRoute(app, { prisma, sessionActor });
+  // Stays off until the provisioner and its tables land; then wire them here behind
+  // TEAMS_AGENT_APPS_ENABLED.
+  mountTeamsAgentAppRoutes(app, {
+    enabled: false,
+    sessionActor,
+    ownsBot: prismaOwnsBot(prisma),
+    findApp: async () => null,
+    visibilityStatus: () => ({ step: "creating", label: "Creating", estimated: false }),
+    start: async () => {
+      throw new Error("Agent apps are not available");
+    },
+  });
   mountVoiceHttpRoutes(app, { prisma, secrets, env }, async (c) => {
     const actor = await sessionActor(c.req.raw);
     if (actor) enrichLogContext({ "user.id": actor.userId, "space.id": actor.spaceId });
