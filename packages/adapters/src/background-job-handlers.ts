@@ -36,6 +36,7 @@ import { pollPurchase } from "./purchase-poll.js";
 import { expireTaughtSkillTeaching } from "./teaching-session.js";
 import { deprovisionAgentTeamsApp } from "./teams-agent-apps/deprovision.js";
 import type { AgentTeamsDeprovisionDeps } from "./teams-agent-apps/deps.js";
+import { teamsAgentAppsEnabled } from "./teams-agent-apps/env.js";
 import { provisionAgentTeamsApp } from "./teams-agent-apps/provision.js";
 
 type Tenant = { spaceId: string; userId: string };
@@ -83,7 +84,13 @@ export function createBackgroundJobHandlers(deps: {
   maxUploadSizeBytes?: number;
   /** Agent Teams app teardown; undefined while TEAMS_AGENT_APPS_ENABLED is off. */
   teamsAgentApps?: AgentTeamsDeprovisionDeps;
+  /**
+   * TEAMS_AGENT_APPS_ENABLED, read when each job runs through the same accessor as the routes,
+   * so a queued job does nothing once the flag is off. Defaults to the process env.
+   */
+  teamsAgentAppsEnabled?: () => boolean;
 }): BackgroundJobHandlers {
+  const agentAppsOn = deps.teamsAgentAppsEnabled ?? (() => teamsAgentAppsEnabled(process.env));
   const messagingDeps = deps.messaging
     ? {
         prisma: deps.prisma,
@@ -168,7 +175,7 @@ export function createBackgroundJobHandlers(deps: {
       });
     },
     "teams.agent-app-provision": async ({ botId }) => {
-      const teamsAgentApps = deps.teamsAgentApps;
+      const teamsAgentApps = agentAppsOn() ? deps.teamsAgentApps : undefined;
       if (!teamsAgentApps) {
         getLogger().warn("teams.agent-app-provision skipped: agent Teams apps are not configured", {
           botId,
@@ -190,7 +197,8 @@ export function createBackgroundJobHandlers(deps: {
       );
     },
     "teams.agent-app-deprovision": async ({ botId, agentName }) => {
-      if (!deps.teamsAgentApps) {
+      const teamsAgentApps = agentAppsOn() ? deps.teamsAgentApps : undefined;
+      if (!teamsAgentApps) {
         getLogger().warn(
           "teams.agent-app-deprovision skipped: agent Teams apps are not configured",
           {
@@ -199,8 +207,9 @@ export function createBackgroundJobHandlers(deps: {
         );
         return;
       }
-      // A failure throws, so the queue retries; every step is idempotent.
-      await deprovisionAgentTeamsApp(botId, deps.teamsAgentApps, { agentName });
+      // A failure (or a provision holding the row) throws, so the queue retries; every step is
+      // idempotent.
+      await deprovisionAgentTeamsApp(botId, teamsAgentApps, { agentName });
     },
     "messaging.deliver": async ({ runId }) => {
       if (runId && messagingDeps) {

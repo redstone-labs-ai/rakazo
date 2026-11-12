@@ -16,6 +16,7 @@ import {
   resolveDeploymentModel,
   resolveSandboxProvider,
   secretStoreOptionsFromEnv,
+  teamsAgentAppsEnabled,
   teamsAgentBotsFromEnv,
   telegramBotsFromEnv,
 } from "@rakazo/adapters";
@@ -376,7 +377,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     teamsAppPassword: optional(source.TEAMS_APP_PASSWORD),
     teamsAppTenantId: optional(source.TEAMS_APP_TENANT_ID),
     teamsAgentBots: teamsAgentBotsFromEnv(source),
-    teamsAgentAppsEnabled: source.TEAMS_AGENT_APPS_ENABLED === "true",
+    teamsAgentAppsEnabled: teamsAgentAppsEnabled(source),
     managebotTeamsListeningUrl: optional(source.MANAGEBOT_TEAMS_LISTENING_URL),
     managebotInternalToken: optional(source.MANAGEBOT_INTERNAL_TOKEN),
     messagingOpenSignup: source.MESSAGING_OPEN_SIGNUP === "true",

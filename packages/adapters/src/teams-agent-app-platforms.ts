@@ -151,17 +151,16 @@ export class TeamsAgentAppRouter {
     }
 
     // Rows gone (removed, failed, deleted): unmount, then give back an env bot for that agent.
+    // One provider's failure is logged and never stops the rest of the pass.
     for (const provider of [...this.managed.keys()]) {
       if (desired.has(provider)) continue;
       this.managed.delete(provider);
-      await host.unmountPlatform(provider);
-      const envBot = this.options.envBots.find(
-        (bot) => teamsAgentProvider(bot.agentId) === provider,
-      );
-      if (envBot && !this.appIdTaken(envBot.appId, provider)) {
-        const platform = this.build(envBot, provider);
-        if (platform) await host.mountPlatform(platform);
+      try {
+        await host.unmountPlatform(provider);
+      } catch (error) {
+        getLogger().warn("agent Teams app unmount failed", { provider, reason: reason(error) });
       }
+      await this.restoreEnvBot(provider);
     }
 
     for (const [provider, app] of desired) {
@@ -182,13 +181,40 @@ export class TeamsAgentAppRouter {
         app.rowId,
       );
       if (!platform) continue;
-      // Replaces an env-configured bot for the same agent: the DB row wins.
-      await host.mountPlatform(platform);
+      try {
+        // Replaces an env-configured bot for the same agent: the DB row wins.
+        await host.mountPlatform(platform);
+      } catch (error) {
+        // The host drops the previous platform before mounting, so a failed mount would leave
+        // the agent unreachable: put back the env bot (or nothing), and retry on the next pass.
+        getLogger().warn("agent Teams app mount failed; retrying on the next refresh", {
+          botId: app.botId,
+          reason: reason(error),
+        });
+        this.managed.delete(provider);
+        await this.restoreEnvBot(provider);
+        continue;
+      }
       this.managed.set(provider, {
         rowId: app.rowId,
         appId: app.appId,
         appPassword: app.appPassword,
       });
+    }
+  }
+
+  /** Remounts the env-configured bot for `provider`, if there is one and nothing serves it. */
+  private async restoreEnvBot(provider: string): Promise<void> {
+    const { host } = this.options;
+    const envBot = this.options.envBots.find((bot) => teamsAgentProvider(bot.agentId) === provider);
+    if (!envBot || host.mountedPlatform(provider)) return;
+    if (this.appIdTaken(envBot.appId, provider)) return;
+    const platform = this.build(envBot, provider);
+    if (!platform) return;
+    try {
+      await host.mountPlatform(platform);
+    } catch (error) {
+      getLogger().warn("env Teams agent bot remount failed", { provider, reason: reason(error) });
     }
   }
 
@@ -288,6 +314,10 @@ export function prismaAgentTeamsChatInstalls(prisma: PrismaClient): AgentTeamsCh
       await markChatRemoved(agentAppId, chatId, { store });
     },
   };
+}
+
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -1,3 +1,4 @@
+import type { AgentAppSecurityEvent } from "./app-role-guard.js";
 import type { FetchLike, TokenProvider } from "./http.js";
 import type { AgentManifestDeveloper } from "./manifest.js";
 import type { AgentTeamsAppRecord, AgentTeamsAppStore } from "./store.js";
@@ -19,6 +20,16 @@ export interface AgentTeamsAppsConfig {
   developer: AgentManifestDeveloper;
   /** App package version for new manifests. */
   manifestVersion?: string;
+  /** TEAMS_APP_ID, the shared Bot app: never a target of an app role grant. */
+  sharedBotAppId: string;
+}
+
+/** The provisioner's own identity (a user-assigned managed identity in production). */
+export interface AgentTeamsProvisionerIdentity {
+  /** Client id (TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID). */
+  clientId: string;
+  /** Its service principal's object id, which Graph lists as owner of every agent app. */
+  objectId: () => Promise<string>;
 }
 
 export interface AgentTeamsAppsDeps {
@@ -27,10 +38,15 @@ export interface AgentTeamsAppsDeps {
   fetch: FetchLike;
   config: AgentTeamsAppsConfig;
   /**
-   * The provisioner app's own client-credential tokens, for Graph (apps, service principals,
-   * app role grants) and ARM (Azure Bot).
+   * The provisioner's own tokens (managed identity), for Graph (apps, service principals,
+   * guarded app role grants), ARM (Azure Bot) and Key Vault.
    */
   provisionerToken: TokenProvider;
+  identity: AgentTeamsProvisionerIdentity;
+  /** Records a guard `security.event`; defaults to `recordSecurityEvent`. */
+  securityEvent?: (event: AgentAppSecurityEvent) => Promise<void>;
+  /** Operation lease length; default 15 minutes. */
+  lockMs?: number;
   /** A delegated Teams admin token for Graph: the org catalog takes no app-only publish. */
   catalogToken: () => Promise<string>;
   now?: () => Date;

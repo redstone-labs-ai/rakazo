@@ -1,4 +1,5 @@
 import { getLogger } from "@rakazo/logging";
+import { agentEntraAppBody, assignAgentGraphAppRoles } from "./app-role-guard.js";
 import type { AgentTeamsAppsDeps } from "./deps.js";
 import {
   ARM_BASE,
@@ -6,22 +7,43 @@ import {
   asRecord,
   GRAPH_BASE,
   GRAPH_SCOPE,
-  MICROSOFT_GRAPH_APP_ID,
   MicrosoftApiError,
   msCall,
   stringField,
 } from "./http.js";
 import { agentIcons, buildAgentTeamsManifest, buildManifestZip } from "./manifest.js";
-import type { AgentTeamsAppRecord, AgentTeamsAppStore, AgentTeamsChatRecord } from "./store.js";
+import type {
+  AgentTeamsAppPatch,
+  AgentTeamsAppRecord,
+  AgentTeamsAppStore,
+  AgentTeamsChatRecord,
+} from "./store.js";
+
+export { AGENT_GRAPH_APP_ROLES } from "./app-role-guard.js";
 
 export const AZURE_BOT_API_VERSION = "2022-09-15";
-/** Graph application permissions every agent app gets, so it can create and join chats itself. */
-export const AGENT_GRAPH_APP_ROLES = [
-  "Chat.Create",
-  "TeamsAppInstallation.ReadWriteAndConsentSelfForChat.All",
-] as const;
+/** How long one provision or removal holds the row's lease. */
+export const AGENT_TEAMS_APP_LOCK_MS = 15 * 60_000;
 const DEFAULT_MANIFEST_VERSION = "1.0.0";
 const LAST_ERROR_MAX = 500;
+/** Statuses provisioning may write to. Anything else (removing, removed) means stop. */
+const PROVISIONING_STATUSES = ["creating", "registered"] as const;
+
+/** Another provision or removal holds this agent's row; the job queue retries later. */
+export class AgentTeamsAppBusyError extends Error {
+  constructor(botId: string) {
+    super(`agent Teams app for ${botId} is busy with another operation; retry later`);
+    this.name = "AgentTeamsAppBusyError";
+  }
+}
+
+/** Removal began while provisioning ran; provisioning stopped without touching the status. */
+export class AgentTeamsAppRemovalStartedError extends Error {
+  constructor() {
+    super("agent Teams app removal started; provisioning stopped");
+    this.name = "AgentTeamsAppRemovalStartedError";
+  }
+}
 
 export interface ProvisionAgentTeamsAppInput {
   botId: string;
@@ -59,53 +81,92 @@ export function safeErrorMessage(error: unknown): string {
 }
 
 /**
+ * Runs `fn` holding the row's operation lease, so provision and removal of one agent never
+ * interleave. Throws `AgentTeamsAppBusyError` (retryable) when the lease is held.
+ */
+export async function withAgentAppLock<T>(
+  deps: Pick<AgentTeamsAppsDeps, "store" | "now" | "lockMs">,
+  app: AgentTeamsAppRecord,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const at = (deps.now ?? (() => new Date()))();
+  const until = new Date(at.getTime() + (deps.lockMs ?? AGENT_TEAMS_APP_LOCK_MS));
+  if (!(await deps.store.acquireLock(app.id, until, at))) {
+    throw new AgentTeamsAppBusyError(app.botId);
+  }
+  try {
+    return await fn();
+  } finally {
+    await deps.store.releaseLock(app.id).catch((error: unknown) => {
+      getLogger().warn("agent Teams app lease release failed", {
+        botId: app.botId,
+        error: safeErrorMessage(error),
+      });
+    });
+  }
+}
+
+/**
  * Gives an agent its own Teams identity. Idempotent and resumable: every step is skipped when
  * the row already holds its result, so a retry after a failure picks up where it stopped.
  * Steps: Entra app → service principal → password in Key Vault → Azure Bot + Teams channel →
- * Graph app roles → manifest → org catalog publish.
+ * Graph app roles (guarded) → manifest → org catalog publish. Runs under the row's lease, and
+ * every write is a compare-and-set, so it never overwrites `removing` or `removed`.
  */
 export async function provisionAgentTeamsApp(
   input: ProvisionAgentTeamsAppInput,
   deps: AgentTeamsAppsDeps,
 ): Promise<AgentTeamsAppRecord> {
   const now = deps.now ?? (() => new Date());
-  let app = await deps.store.ensure(input.botId);
-  if (app.status === "removing") {
-    throw new Error("This agent's Teams app is being removed; provision it again afterwards.");
-  }
-  if (app.status === "published" || app.status === "visible") return app;
-  if (app.status === "removed") {
-    app = await deps.store.update(app.id, {
-      status: "creating",
-      entraAppId: null,
-      entraObjectId: null,
-      secretRef: null,
-      azureBotName: null,
-      catalogAppId: null,
-      manifestVersion: null,
-      publishedAt: null,
-      firstInstalledAt: null,
-      lastError: null,
-    });
-  } else if (app.status === "failed") {
-    app = await deps.store.update(app.id, { status: "creating", lastError: null });
-  }
-  let published: AgentTeamsAppRecord;
-  try {
-    published = await runProvision(app, input, deps, now);
-  } catch (error) {
-    await deps.store.update(app.id, { status: "failed", lastError: safeErrorMessage(error) });
-    throw error;
-  }
-  if (deps.onPublished) {
-    await deps.onPublished(published).catch((error: unknown) => {
+  const ensured = await deps.store.ensure(input.botId);
+  const published = await withAgentAppLock(deps, ensured, async () => {
+    let app = (await deps.store.findById(ensured.id)) ?? ensured;
+    if (app.status === "removing") {
+      throw new Error("This agent's Teams app is being removed; provision it again afterwards.");
+    }
+    if (app.status === "published" || app.status === "visible") return { app, fresh: false };
+    if (app.status === "removed" || app.status === "failed") {
+      const reset: AgentTeamsAppPatch =
+        app.status === "removed"
+          ? {
+              status: "creating",
+              entraAppId: null,
+              entraObjectId: null,
+              secretRef: null,
+              azureBotName: null,
+              catalogAppId: null,
+              manifestVersion: null,
+              publishedAt: null,
+              firstInstalledAt: null,
+              lastError: null,
+            }
+          : { status: "creating", lastError: null };
+      const restarted = await deps.store.updateIfStatus(app.id, [app.status], reset);
+      if (!restarted) throw new AgentTeamsAppBusyError(input.botId);
+      app = restarted;
+    }
+    try {
+      return { app: await runProvision(app, input, deps, now), fresh: true };
+    } catch (error) {
+      // A removal that started meanwhile owns the status; only a live provision is marked failed.
+      if (!(error instanceof AgentTeamsAppRemovalStartedError)) {
+        await deps.store.updateIfStatus(app.id, PROVISIONING_STATUSES, {
+          status: "failed",
+          lastError: safeErrorMessage(error),
+        });
+      }
+      throw error;
+    }
+  });
+  if (published.fresh && deps.onPublished) {
+    await deps.onPublished(published.app).catch((error: unknown) => {
       getLogger().warn("agent Teams app published but platform refresh failed", {
-        botId: published.botId,
+        botId: published.app.botId,
         error: safeErrorMessage(error),
       });
     });
   }
-  return published;
+  return published.app;
 }
 
 async function runProvision(
@@ -117,20 +178,23 @@ async function runProvision(
   const { store, config } = deps;
   let app = start;
   const graph = () => deps.provisionerToken(GRAPH_SCOPE);
+  const save = async (patch: AgentTeamsAppPatch) => {
+    const saved = await store.updateIfStatus(app.id, PROVISIONING_STATUSES, patch);
+    if (!saved) throw new AgentTeamsAppRemovalStartedError();
+    return saved;
+  };
 
-  // 1. Entra app, single-tenant. The unique name makes a repeated create return the same app.
+  // 1. Entra app, single-tenant, tagged. The unique name makes a repeated create return the same
+  // app; the provisioner becomes its owner, which the role guard later checks.
   if (!app.entraAppId || !app.entraObjectId) {
     const created = await upsertEntraApp(deps, await graph(), input);
-    app = await store.update(app.id, {
-      entraAppId: created.appId,
-      entraObjectId: created.objectId,
-    });
+    app = await save({ entraAppId: created.appId, entraObjectId: created.objectId });
   }
   const entraAppId = required(app.entraAppId, "entraAppId");
   const entraObjectId = required(app.entraObjectId, "entraObjectId");
 
   // 2. Service principal (needed for tokens and app role grants).
-  const servicePrincipalId = await ensureServicePrincipal(deps, await graph(), entraAppId);
+  await ensureServicePrincipal(deps, await graph(), entraAppId);
 
   // 3. Password credential, stored only in Key Vault.
   if (!app.secretRef) {
@@ -145,7 +209,7 @@ async function runProvision(
     if (!secretText) throw new Error("add Entra app password returned no secret");
     const secretRef = agentSecretName(input.botId);
     await deps.secrets.set(secretRef, secretText);
-    app = await store.update(app.id, { secretRef });
+    app = await save({ secretRef });
   }
 
   // 4. Azure Bot with the Teams channel. PUT is idempotent, so both run before the name is saved.
@@ -182,11 +246,11 @@ async function runProvision(
       },
       label: "enable Teams channel",
     });
-    app = await store.update(app.id, { azureBotName, status: "registered" });
+    app = await save({ azureBotName, status: "registered" });
   }
 
-  // 5. Graph app roles for the agent's own service principal. Cheap and idempotent; always checked.
-  await grantAgentAppRoles(deps, await graph(), servicePrincipalId);
+  // 5. Graph app roles for the agent's own service principal, only through the guard.
+  await assignAgentGraphAppRoles(deps, input.botId);
 
   // 6–7. Manifest and org catalog publish, with the delegated admin token.
   if (!app.catalogAppId) {
@@ -218,15 +282,15 @@ async function runProvision(
       catalogAppId = stringField(published.json, "id");
       if (!catalogAppId) throw new Error("publish Teams catalog app returned no id");
     }
-    app = await store.update(app.id, {
+    app = await save({
       catalogAppId,
       manifestVersion: version,
       publishedAt: now(),
       status: "published",
       lastError: null,
     });
-  } else if (app.status !== "published") {
-    app = await store.update(app.id, {
+  } else {
+    app = await save({
       status: "published",
       publishedAt: app.publishedAt ?? now(),
       lastError: null,
@@ -259,7 +323,8 @@ async function upsertEntraApp(
     url,
     token,
     headers: { prefer: "create-if-missing" },
-    body: { displayName: input.name, signInAudience: "AzureADMyOrg" },
+    // Single-tenant, tagged, "Rakazo agent: <name>", and no requested API access.
+    body: agentEntraAppBody(input.name),
     label: "create Entra app",
   });
   let record = upserted.json;
@@ -305,52 +370,6 @@ async function ensureServicePrincipal(
   return id;
 }
 
-async function grantAgentAppRoles(
-  deps: AgentTeamsAppsDeps,
-  token: string,
-  servicePrincipalId: string,
-): Promise<void> {
-  const graphSp = await msCall(deps.fetch, {
-    method: "GET",
-    url: `${GRAPH_BASE}/servicePrincipals(appId='${MICROSOFT_GRAPH_APP_ID}')?$select=id,appRoles`,
-    token,
-    label: "read Microsoft Graph service principal",
-  });
-  const resourceId = stringField(graphSp.json, "id");
-  const roles = Array.isArray(graphSp.json?.appRoles) ? graphSp.json.appRoles : [];
-  const roleIds = new Map<string, string>();
-  for (const role of roles) {
-    const record = asRecord(role);
-    const value = stringField(record, "value");
-    const id = stringField(record, "id");
-    if (value && id) roleIds.set(value, id);
-  }
-  const assigned = await msCall(deps.fetch, {
-    method: "GET",
-    url: `${GRAPH_BASE}/servicePrincipals/${encodeURIComponent(servicePrincipalId)}/appRoleAssignments`,
-    token,
-    label: "read app role assignments",
-  });
-  const current = new Set(
-    (Array.isArray(assigned.json?.value) ? assigned.json.value : [])
-      .map((entry) => asRecord(entry))
-      .filter((entry) => stringField(entry, "resourceId") === resourceId)
-      .map((entry) => stringField(entry, "appRoleId")),
-  );
-  for (const value of AGENT_GRAPH_APP_ROLES) {
-    const appRoleId = roleIds.get(value);
-    if (!appRoleId) throw new Error(`Microsoft Graph has no app role ${value}`);
-    if (current.has(appRoleId)) continue;
-    await msCall(deps.fetch, {
-      method: "POST",
-      url: `${GRAPH_BASE}/servicePrincipals/${encodeURIComponent(servicePrincipalId)}/appRoleAssignments`,
-      token,
-      body: { principalId: servicePrincipalId, resourceId, appRoleId },
-      label: `grant ${value}`,
-    });
-  }
-}
-
 /** The org catalog id of the app whose manifest id is `externalId`, if it is published. */
 export async function findCatalogApp(
   deps: Pick<AgentTeamsAppsDeps, "fetch">,
@@ -370,23 +389,31 @@ export async function findCatalogApp(
 
 /**
  * Records that the agent's app was installed in a chat. The first install proves the app is
- * visible in Teams, so it also sets `firstInstalledAt`.
+ * visible in Teams, so it also sets `firstInstalledAt`. An app being removed records nothing:
+ * the removal has already taken its list of chats.
  */
 export async function recordChatInstall(
   agentAppId: string,
   chatId: string,
   installId: string | null,
   deps: { store: AgentTeamsAppStore; now?: () => Date },
-): Promise<AgentTeamsChatRecord> {
+): Promise<AgentTeamsChatRecord | null> {
   const at = (deps.now ?? (() => new Date()))();
   const app = await deps.store.findById(agentAppId);
   if (!app) throw new Error(`No agent Teams app ${agentAppId}`);
+  if (app.status === "removing" || app.status === "removed") return null;
   const chat = await deps.store.upsertChat({ agentAppId, chatId, installId, installedAt: at });
   if (!app.firstInstalledAt) {
-    await deps.store.update(agentAppId, {
+    // Compare-and-set, so an install seen mid-removal never turns `removing` back into `visible`.
+    const moved = await deps.store.updateIfStatus(agentAppId, ["published"], {
       firstInstalledAt: at,
-      ...(app.status === "published" ? { status: "visible" } : {}),
+      status: "visible",
     });
+    if (!moved) {
+      await deps.store.updateIfStatus(agentAppId, ["creating", "registered", "visible"], {
+        firstInstalledAt: at,
+      });
+    }
   }
   return chat;
 }

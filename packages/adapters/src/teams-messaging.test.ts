@@ -884,6 +884,46 @@ describe("Teams agent apps (runtime)", () => {
     expect(appIdOf(surface, "teams-botleasing")).toBe(ENV_LEASING_APP_ID);
   });
 
+  it("a failed mount restores the env bot and does not abort the rest of the pass", async () => {
+    const leasingRow = {
+      ...tonyRow,
+      id: "row-leasing",
+      botId: "botLeasing",
+      entraAppId: "00000000-0000-0000-0000-0000000000f1",
+      secretRef: "s-leasing",
+    };
+    const { surface, router } = harness([leasingRow, tonyRow], {
+      "s-leasing": "db-secret",
+      "teams-app-bottony": "tony-secret",
+    });
+    const realMount = surface.mountPlatform.bind(surface);
+    let failNext = true;
+    const mount = vi.spyOn(surface, "mountPlatform").mockImplementation(async (platform) => {
+      if (
+        failNext &&
+        platform.provider === "teams-botleasing" &&
+        platform.routeKey !== ENV_LEASING_APP_ID
+      ) {
+        failNext = false;
+        // Like the real host: the previous platform is dropped, then initialize throws.
+        await surface.unmountPlatform(platform.provider);
+        throw new Error("initialize failed");
+      }
+      await realMount(platform);
+    });
+
+    await router.refresh();
+    // The env bot is back, and Tony (later in the same pass) still mounted.
+    expect(appIdOf(surface, "teams-botleasing")).toBe(ENV_LEASING_APP_ID);
+    expect(appIdOf(surface, "teams-bottony")).toBe(TONY_APP_ID);
+    expect(router.mounted().has("teams-botleasing")).toBe(false);
+
+    // The next pass retries and the database row wins.
+    await router.refresh();
+    expect(appIdOf(surface, "teams-botleasing")).toBe("00000000-0000-0000-0000-0000000000f1");
+    mount.mockRestore();
+  });
+
   it("never mounts two platforms on one app id", async () => {
     const clash = { ...tonyRow, entraAppId: APP_ID.toUpperCase() };
     const { surface, router } = harness([clash], { "teams-app-bottony": "x" });

@@ -5,9 +5,12 @@ import type { FetchLike, TokenProvider } from "./http.js";
 import {
   asRecord,
   clientCredentialTokens,
+  GRAPH_SCOPE,
   MicrosoftApiError,
+  managedIdentityTokens,
   msCall,
   stringField,
+  tokenObjectId,
 } from "./http.js";
 import { prismaAgentTeamsAppStore } from "./store.js";
 
@@ -17,6 +20,10 @@ const DEFAULT_SERVICE_URL = "https://smba.trafficmanager.net/teams/";
 /** Delegated scopes the catalog token is refreshed with. */
 const CATALOG_SCOPES = "https://graph.microsoft.com/AppCatalog.ReadWrite.All offline_access";
 
+/**
+ * The one TEAMS_AGENT_APPS_ENABLED accessor: the API env, the routes, bot removal, the router
+ * and the provisioning jobs all read the flag through it.
+ */
 export function teamsAgentAppsEnabled(env: Record<string, string | undefined>): boolean {
   return env.TEAMS_AGENT_APPS_ENABLED === "true";
 }
@@ -65,30 +72,32 @@ export function keyVaultSecretStore(options: {
 
 /**
  * A delegated Teams admin Graph token, refreshed from a refresh token kept in Key Vault. A
- * rotated refresh token is written back, so the next call keeps working.
+ * rotated refresh token is written back, so the next call keeps working. The catalog client is
+ * a public client (no secret); `clientSecret` is only for a confidential one.
  */
 export function refreshTokenCatalogToken(options: {
   tenantId: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   refreshTokenSecret: string;
   secrets: AgentTeamsSecretStore;
   fetch: FetchLike;
 }): () => Promise<string> {
   return async () => {
     const refreshToken = await options.secrets.get(options.refreshTokenSecret);
+    const form = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: options.clientId,
+      refresh_token: refreshToken,
+      scope: CATALOG_SCOPES,
+    });
+    if (options.clientSecret) form.set("client_secret", options.clientSecret);
     const response = await options.fetch(
       `https://login.microsoftonline.com/${encodeURIComponent(options.tenantId)}/oauth2/v2.0/token`,
       {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: options.clientId,
-          client_secret: options.clientSecret,
-          refresh_token: refreshToken,
-          scope: CATALOG_SCOPES,
-        }).toString(),
+        body: form.toString(),
       },
     );
     const text = await response.text().catch(() => "");
@@ -115,14 +124,30 @@ export function refreshTokenCatalogToken(options: {
   };
 }
 
+/** Env keys `teamsAgentAppsFromEnv` cannot run without. */
+export const TEAMS_AGENT_APPS_REQUIRED_ENV = [
+  "TEAMS_APP_TENANT_ID",
+  "TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID",
+  "IDENTITY_ENDPOINT",
+  "IDENTITY_HEADER",
+  "TEAMS_AGENT_APPS_SUBSCRIPTION_ID",
+  "TEAMS_AGENT_APPS_RESOURCE_GROUP",
+  "TEAMS_AGENT_APPS_KEY_VAULT_URL",
+  "TEAMS_AGENT_APPS_CATALOG_CLIENT_ID",
+  "TEAMS_AGENT_APPS_CATALOG_REFRESH_TOKEN_SECRET",
+  "TEAMS_MESSAGING_ENDPOINT",
+  "TEAMS_APP_ID",
+  "TEAMS_APP_PASSWORD",
+  "TEAMS_APP_CATALOG_ID",
+] as const;
+
 /**
  * Provisioning dependencies from env, or undefined when the flag is off or config is missing.
- * Reads: TEAMS_AGENT_APPS_ENABLED, TEAMS_APP_TENANT_ID, TEAMS_AGENT_APPS_CLIENT_ID,
- * TEAMS_AGENT_APPS_CLIENT_SECRET, TEAMS_AGENT_APPS_SUBSCRIPTION_ID,
- * TEAMS_AGENT_APPS_RESOURCE_GROUP, TEAMS_AGENT_APPS_KEY_VAULT_URL,
- * TEAMS_AGENT_APPS_CATALOG_REFRESH_TOKEN_SECRET, TEAMS_MESSAGING_ENDPOINT, TEAMS_APP_ID,
- * TEAMS_APP_PASSWORD, TEAMS_APP_CATALOG_ID, TEAMS_SERVICE_URL and the optional
- * TEAMS_AGENT_APPS_DEVELOPER_{NAME,WEBSITE_URL,PRIVACY_URL,TERMS_URL}.
+ * The provisioner authenticates as a user-assigned managed identity
+ * (TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID, through the platform's IDENTITY_ENDPOINT and
+ * IDENTITY_HEADER): there is no provisioner client secret. Reads TEAMS_AGENT_APPS_REQUIRED_ENV,
+ * plus the optional TEAMS_SERVICE_URL and TEAMS_AGENT_APPS_DEVELOPER_{NAME,WEBSITE_URL,
+ * PRIVACY_URL,TERMS_URL}.
  */
 export function teamsAgentAppsFromEnv(
   env: Record<string, string | undefined>,
@@ -131,32 +156,18 @@ export function teamsAgentAppsFromEnv(
 ): AgentTeamsDeprovisionDeps | undefined {
   if (!teamsAgentAppsEnabled(env)) return undefined;
   const read = (key: string) => env[key]?.trim() ?? "";
-  const requiredKeys = [
-    "TEAMS_APP_TENANT_ID",
-    "TEAMS_AGENT_APPS_CLIENT_ID",
-    "TEAMS_AGENT_APPS_CLIENT_SECRET",
-    "TEAMS_AGENT_APPS_SUBSCRIPTION_ID",
-    "TEAMS_AGENT_APPS_RESOURCE_GROUP",
-    "TEAMS_AGENT_APPS_KEY_VAULT_URL",
-    "TEAMS_AGENT_APPS_CATALOG_REFRESH_TOKEN_SECRET",
-    "TEAMS_MESSAGING_ENDPOINT",
-    "TEAMS_APP_ID",
-    "TEAMS_APP_PASSWORD",
-    "TEAMS_APP_CATALOG_ID",
-  ];
-  const missing = requiredKeys.filter((key) => !read(key));
+  const missing = TEAMS_AGENT_APPS_REQUIRED_ENV.filter((key) => !read(key));
   if (missing.length) {
     getLogger().warn("TEAMS_AGENT_APPS_ENABLED is on but config is missing", { missing });
     return undefined;
   }
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
   const tenantId = read("TEAMS_APP_TENANT_ID");
-  const clientId = read("TEAMS_AGENT_APPS_CLIENT_ID");
-  const clientSecret = read("TEAMS_AGENT_APPS_CLIENT_SECRET");
-  const provisionerToken = clientCredentialTokens({
-    tenantId,
-    clientId,
-    clientSecret: async () => clientSecret,
+  const identityClientId = read("TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID");
+  const provisionerToken = managedIdentityTokens({
+    endpoint: read("IDENTITY_ENDPOINT"),
+    header: read("IDENTITY_HEADER"),
+    clientId: identityClientId,
     fetch: fetchImpl,
   });
   const secrets = keyVaultSecretStore({
@@ -164,6 +175,7 @@ export function teamsAgentAppsFromEnv(
     token: provisionerToken,
     fetch: fetchImpl,
   });
+  const sharedAppId = read("TEAMS_APP_ID").toLowerCase();
   const sharedPassword = read("TEAMS_APP_PASSWORD");
   return {
     store: prismaAgentTeamsAppStore(prisma),
@@ -174,6 +186,7 @@ export function teamsAgentAppsFromEnv(
       subscriptionId: read("TEAMS_AGENT_APPS_SUBSCRIPTION_ID"),
       resourceGroup: read("TEAMS_AGENT_APPS_RESOURCE_GROUP"),
       messagingEndpoint: read("TEAMS_MESSAGING_ENDPOINT"),
+      sharedBotAppId: sharedAppId,
       developer: {
         name: read("TEAMS_AGENT_APPS_DEVELOPER_NAME") || "Redstone",
         websiteUrl: read("TEAMS_AGENT_APPS_DEVELOPER_WEBSITE_URL") || "https://managebot.ai",
@@ -183,10 +196,14 @@ export function teamsAgentAppsFromEnv(
       },
     },
     provisionerToken,
+    identity: {
+      clientId: identityClientId,
+      // The identity's own token names its service principal (`oid`).
+      objectId: async () => tokenObjectId(await provisionerToken(GRAPH_SCOPE)),
+    },
     catalogToken: refreshTokenCatalogToken({
       tenantId,
-      clientId,
-      clientSecret,
+      clientId: read("TEAMS_AGENT_APPS_CATALOG_CLIENT_ID"),
       refreshTokenSecret: read("TEAMS_AGENT_APPS_CATALOG_REFRESH_TOKEN_SECRET"),
       secrets,
       fetch: fetchImpl,
@@ -195,7 +212,7 @@ export function teamsAgentAppsFromEnv(
       catalogAppId: read("TEAMS_APP_CATALOG_ID"),
       token: clientCredentialTokens({
         tenantId,
-        clientId: read("TEAMS_APP_ID").toLowerCase(),
+        clientId: sharedAppId,
         clientSecret: async () => sharedPassword,
         fetch: fetchImpl,
       }),

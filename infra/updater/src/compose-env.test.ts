@@ -105,9 +105,12 @@ const INDIRECT = {
     "http_proxy",
     "https_proxy",
     "no_proxy",
-    // adapters/teams-agent-apps/env.ts reads these through a small helper.
-    "TEAMS_AGENT_APPS_CLIENT_ID",
-    "TEAMS_AGENT_APPS_CLIENT_SECRET",
+    // adapters/teams-agent-apps/env.ts reads these through a small helper. The provisioner is a
+    // user-assigned managed identity: Azure Container Apps sets IDENTITY_ENDPOINT/HEADER.
+    "TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID",
+    "IDENTITY_ENDPOINT",
+    "IDENTITY_HEADER",
+    "TEAMS_AGENT_APPS_CATALOG_CLIENT_ID",
     "TEAMS_AGENT_APPS_SUBSCRIPTION_ID",
     "TEAMS_AGENT_APPS_RESOURCE_GROUP",
     "TEAMS_AGENT_APPS_KEY_VAULT_URL",

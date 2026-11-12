@@ -312,8 +312,10 @@ describe("teams.agent-app-provision", () => {
   function handlersFor(
     bot: { name: string; description: string; color: string; archivedAt: Date | null } | null,
     teamsAgentApps: AgentTeamsDeprovisionDeps | undefined,
+    flag = true,
   ) {
     return createBackgroundJobHandlers({
+      teamsAgentAppsEnabled: () => flag,
       executor: {} as unknown as ReturnType<typeof createRunExecutor>,
       prisma: { bot: { findUnique: vi.fn(async () => bot) } } as unknown as PrismaClient,
       sandbox: {} as unknown as SandboxProvider,
@@ -347,6 +349,12 @@ describe("teams.agent-app-provision", () => {
     vi.mocked(provisionAgentTeamsApp).mockClear();
     const live = { name: "Ada", description: "", color: "#000000", archivedAt: null };
     await handlersFor(live, undefined)["teams.agent-app-provision"]({ botId: "bot-1" });
+    // Configured, but the flag was turned off after the job was queued.
+    await handlersFor(live, deps, false)["teams.agent-app-provision"]({ botId: "bot-1" });
+    await handlersFor(live, deps, false)["teams.agent-app-deprovision"]({
+      botId: "bot-1",
+      agentName: "Ada",
+    });
     await handlersFor(null, deps)["teams.agent-app-provision"]({ botId: "bot-1" });
     await handlersFor({ ...live, archivedAt: new Date() }, deps)["teams.agent-app-provision"]({
       botId: "bot-1",

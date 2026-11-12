@@ -35,7 +35,8 @@ export function createBotRemoval(deps: RouterDeps, repos: ReturnType<typeof crea
       options,
     );
     // The agent's own Teams app outlives the bot row; a retried job removes it.
-    if (process.env.TEAMS_AGENT_APPS_ENABLED === "true") {
+    // The same TEAMS_AGENT_APPS_ENABLED accessor the agent Teams app routes read.
+    if (deps.env.teamsAgentAppsEnabled) {
       await deps.jobs
         .enqueue(teamsAgentAppDeprovisionJob({ botId: bot.id, agentName: bot.name }))
         .catch((error: unknown) => {

@@ -121,6 +121,8 @@ export interface RouterDeps {
   onEmailError?: (error: unknown) => void;
   speechSummary?: VoiceDeps["speechSummary"];
   env: {
+    /** TEAMS_AGENT_APPS_ENABLED, from the same accessor the agent Teams app routes use. */
+    teamsAgentAppsEnabled?: boolean;
     ticketBoardEnabled?: boolean;
     navLinks?: NavLink[];
     adminEmails?: string[];

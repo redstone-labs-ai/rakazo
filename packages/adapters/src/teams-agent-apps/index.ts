@@ -1,18 +1,26 @@
+export type { AgentAppSecurityEvent, AgentGraphAppRole } from "./app-role-guard.js";
+export {
+  AGENT_APP_DISPLAY_PREFIX,
+  AGENT_APP_TAG,
+  AppRoleGuardRefusal,
+} from "./app-role-guard.js";
 export { agentHandoffMessage, deprovisionAgentTeamsApp } from "./deprovision.js";
 export type {
   AgentTeamsAppsConfig,
   AgentTeamsAppsDeps,
   AgentTeamsDeprovisionDeps,
+  AgentTeamsProvisionerIdentity,
   AgentTeamsSecretStore,
 } from "./deps.js";
 export {
   keyVaultSecretStore,
   refreshTokenCatalogToken,
+  TEAMS_AGENT_APPS_REQUIRED_ENV,
   teamsAgentAppsEnabled,
   teamsAgentAppsFromEnv,
 } from "./env.js";
 export type { FetchLike, TokenProvider } from "./http.js";
-export { clientCredentialTokens, MicrosoftApiError } from "./http.js";
+export { clientCredentialTokens, MicrosoftApiError, managedIdentityTokens } from "./http.js";
 export type { AgentIcons, AgentManifestInput, AgentTeamsManifest } from "./manifest.js";
 export {
   AGENT_RSC_PERMISSIONS,
@@ -25,6 +33,9 @@ export {
 export type { ProvisionAgentTeamsAppInput } from "./provision.js";
 export {
   AGENT_GRAPH_APP_ROLES,
+  AGENT_TEAMS_APP_LOCK_MS,
+  AgentTeamsAppBusyError,
+  AgentTeamsAppRemovalStartedError,
   agentAzureBotName,
   agentEntraUniqueName,
   agentSecretName,

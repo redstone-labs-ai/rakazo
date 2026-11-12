@@ -26,6 +26,10 @@ export const SECURITY_EVENT_TYPES = [
   "approval.policy.changed",
   "egress.refused",
   "rate_limit.hit",
+  /** The agent Teams app provisioner granted a Graph app role (through its guard). */
+  "teams.agent_app.role_assigned",
+  /** The provisioner's guard refused a Graph app role grant. */
+  "teams.agent_app.role_refused",
 ] as const;
 
 export const SecurityEventTypeSchema = z.enum(SECURITY_EVENT_TYPES);

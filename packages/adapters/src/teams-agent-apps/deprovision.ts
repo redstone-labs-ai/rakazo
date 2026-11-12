@@ -11,7 +11,12 @@ import {
   stringField,
 } from "./http.js";
 import { AGENT_RSC_PERMISSIONS } from "./manifest.js";
-import { AZURE_BOT_API_VERSION, azureBotUrl, safeErrorMessage } from "./provision.js";
+import {
+  AZURE_BOT_API_VERSION,
+  azureBotUrl,
+  safeErrorMessage,
+  withAgentAppLock,
+} from "./provision.js";
 import type { AgentTeamsAppRecord, AgentTeamsChatRecord } from "./store.js";
 
 /** The message the shared bot posts in each chat the agent leaves. */
@@ -36,10 +41,26 @@ export async function deprovisionAgentTeamsApp(
   const agentName = options.agentName?.trim() || "This agent";
   const found = await deps.store.findByBotId(botId);
   if (!found || found.status === "removed") return found;
-  let app = await deps.store.update(found.id, { status: "removing" });
+  // Under the row's lease: a provision in flight makes this throw AgentTeamsAppBusyError, and
+  // the job queue retries once it is done. Once `removing` is set, provisioning never writes.
+  return withAgentAppLock(deps, found, async () => {
+    const current = (await deps.store.findById(found.id)) ?? found;
+    if (current.status === "removed") return current;
+    const app = await deps.store.update(current.id, { status: "removing" });
+    return removeEverything(app, agentName, deps, now);
+  });
+}
+
+async function removeEverything(
+  start: AgentTeamsAppRecord,
+  agentName: string,
+  deps: AgentTeamsDeprovisionDeps,
+  now: () => Date,
+): Promise<AgentTeamsAppRecord> {
+  let app = start;
   try {
     for (const chat of await deps.store.activeChats(app.id)) {
-      await handOffChat(app, chat, agentName, deps);
+      await handOffChat(app, chat, agentName, deps, now);
       await deps.store.markChatRemoved(chat.id, now());
     }
     if (app.catalogAppId) {
@@ -90,6 +111,7 @@ async function handOffChat(
   chat: AgentTeamsChatRecord,
   agentName: string,
   deps: AgentTeamsDeprovisionDeps,
+  now: () => Date,
 ): Promise<void> {
   const shared = deps.sharedBot;
   const sharedGraph = await shared.token(GRAPH_SCOPE);
@@ -115,15 +137,18 @@ async function handOffChat(
     });
   }
 
-  // 2. Handoff message, from the shared bot.
-  const base = shared.serviceUrl.endsWith("/") ? shared.serviceUrl : `${shared.serviceUrl}/`;
-  await msCall(deps.fetch, {
-    method: "POST",
-    url: `${base}v3/conversations/${encodeURIComponent(chat.chatId)}/activities`,
-    token: await shared.token(BOT_CONNECTOR_SCOPE),
-    body: { type: "message", text: agentHandoffMessage(agentName) },
-    label: "post handoff message",
-  });
+  // 2. Handoff message, from the shared bot: once per chat, recorded so a retry never reposts.
+  if (!chat.handoffPostedAt) {
+    const base = shared.serviceUrl.endsWith("/") ? shared.serviceUrl : `${shared.serviceUrl}/`;
+    await msCall(deps.fetch, {
+      method: "POST",
+      url: `${base}v3/conversations/${encodeURIComponent(chat.chatId)}/activities`,
+      token: await shared.token(BOT_CONNECTOR_SCOPE),
+      body: { type: "message", text: agentHandoffMessage(agentName) },
+      label: "post handoff message",
+    });
+    await deps.store.markHandoffPosted(chat.id, now());
+  }
 
   // 3. Uninstall the agent app, as itself (its role covers only its own installs).
   if (!app.entraAppId || !app.secretRef) return;

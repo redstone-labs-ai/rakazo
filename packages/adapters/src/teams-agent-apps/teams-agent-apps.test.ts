@@ -1,10 +1,17 @@
 import { inflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentAppSecurityEvent } from "./app-role-guard.js";
 import { deprovisionAgentTeamsApp } from "./deprovision.js";
 import type { AgentTeamsDeprovisionDeps, AgentTeamsSecretStore } from "./deps.js";
 import type { FetchLike } from "./http.js";
 import { buildAgentTeamsManifest, initialPng } from "./manifest.js";
-import { markChatRemoved, provisionAgentTeamsApp, recordChatInstall } from "./provision.js";
+import {
+  AgentTeamsAppBusyError,
+  AgentTeamsAppRemovalStartedError,
+  markChatRemoved,
+  provisionAgentTeamsApp,
+  recordChatInstall,
+} from "./provision.js";
 import { memoryAgentTeamsAppStore } from "./store.js";
 import { visibilityStatus } from "./visibility.js";
 
@@ -14,6 +21,9 @@ const SP_ID = "sp-1";
 const GRAPH_SP_ID = "graph-sp";
 const CATALOG_ID = "catalog-tony";
 const SHARED_CATALOG_ID = "catalog-shared";
+const PROVISIONER_OID = "provisioner-oid";
+const PROVISIONER_CLIENT_ID = "aaaaaaaa-0000-0000-0000-00000000000a";
+const SHARED_BOT_APP_ID = "bbbbbbbb-0000-0000-0000-00000000000b";
 
 interface Call {
   method: string;
@@ -24,10 +34,17 @@ interface Call {
 
 /** A scripted fake of Graph, ARM and Bot Connector. `failOnce` fails the first matching call. */
 function fakeMicrosoft(
-  options: { failOnce?: (call: Call) => boolean; sharedInstalledIn?: string[] } = {},
+  options: {
+    failOnce?: (call: Call) => boolean;
+    sharedInstalledIn?: string[];
+    /** Owners Graph lists for the agent's Entra app; default: the provisioner. */
+    owners?: string[];
+  } = {},
 ) {
   const calls: Call[] = [];
   let failed = false;
+  let entraBody: Record<string, unknown> = {};
+  const owners = options.owners ?? [PROVISIONER_OID];
   const assignedRoles = new Set<string>();
   let spCreated = false;
   let catalogPublished = false;
@@ -51,10 +68,19 @@ function fakeMicrosoft(
       return json(503, { error: { code: "ServiceUnavailable", message: "try later" } });
     }
     if (url.includes("/applications(uniqueName=")) {
+      entraBody = asObject(body);
       return json(201, { id: OBJECT_ID, appId: APP_ID });
     }
+    if (method === "GET" && url.includes(`/applications/${OBJECT_ID}/owners`)) {
+      return json(200, { value: owners.map((id) => ({ id })) });
+    }
+    if (method === "GET" && url.includes(`/applications/${OBJECT_ID}?`)) {
+      return json(200, { id: OBJECT_ID, appId: APP_ID, ...entraBody });
+    }
     if (url.includes(`/servicePrincipals(appId='${APP_ID}')`)) {
-      return spCreated ? json(200, { id: SP_ID }) : json(404, { error: { code: "NotFound" } });
+      return spCreated
+        ? json(200, { id: SP_ID, appId: APP_ID })
+        : json(404, { error: { code: "NotFound" } });
     }
     if (url.endsWith("/servicePrincipals") && method === "POST") {
       spCreated = true;
@@ -63,12 +89,18 @@ function fakeMicrosoft(
     if (url.includes("/addPassword")) return json(200, { secretText: "s3cret-value" });
     if (url.includes("Microsoft.BotService")) return json(method === "DELETE" ? 200 : 200, {});
     if (url.includes("servicePrincipals(appId='00000003")) {
+      const application = ["Application"];
       return json(200, {
         id: GRAPH_SP_ID,
+        appId: "00000003-0000-0000-c000-000000000000",
         appRoles: [
-          { id: "role-chat-create", value: "Chat.Create" },
-          { id: "role-install", value: "TeamsAppInstallation.ReadWriteAndConsentSelfForChat.All" },
-          { id: "role-other", value: "User.Read.All" },
+          { id: "role-chat-create", value: "Chat.Create", allowedMemberTypes: application },
+          {
+            id: "role-install",
+            value: "TeamsAppInstallation.ReadWriteAndConsentSelfForChat.All",
+            allowedMemberTypes: application,
+          },
+          { id: "role-other", value: "User.Read.All", allowedMemberTypes: application },
         ],
       });
     }
@@ -116,6 +148,12 @@ function fakeMicrosoft(
   return { fetch: vi.fn(fetchImpl), calls, assignedRoles };
 }
 
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : {};
+}
+
 function safeParse(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -142,6 +180,7 @@ function setup(ms = fakeMicrosoft()) {
   const store = memoryAgentTeamsAppStore(() => new Date("2026-11-11T12:00:00Z"));
   const secrets = fakeSecrets();
   const onPublished = vi.fn(async () => undefined);
+  const events: AgentAppSecurityEvent[] = [];
   const deps: AgentTeamsDeprovisionDeps = {
     store,
     secrets: secrets.store,
@@ -157,8 +196,13 @@ function setup(ms = fakeMicrosoft()) {
         privacyUrl: "https://example.test/privacy",
         termsOfUseUrl: "https://example.test/terms",
       },
+      sharedBotAppId: SHARED_BOT_APP_ID,
     },
     provisionerToken: async (scope) => `provisioner:${scope}`,
+    identity: { clientId: PROVISIONER_CLIENT_ID, objectId: async () => PROVISIONER_OID },
+    securityEvent: async (event) => {
+      events.push(event);
+    },
     catalogToken: async () => "delegated-admin",
     now: () => new Date("2026-11-11T12:00:00Z"),
     onPublished,
@@ -169,14 +213,14 @@ function setup(ms = fakeMicrosoft()) {
     },
     agentToken: () => async (scope) => `agent:${scope}`,
   };
-  return { ms, store, secrets, deps, onPublished };
+  return { ms, store, secrets, deps, onPublished, events };
 }
 
 const INPUT = { botId: "bot_tony", name: "Tony", description: "Leasing agent for Streetcar Flats" };
 
 describe("provisionAgentTeamsApp", () => {
   it("runs every step and ends published", async () => {
-    const { ms, deps, secrets, onPublished } = setup();
+    const { ms, deps, secrets, onPublished, events, store } = setup();
     const app = await provisionAgentTeamsApp(INPUT, deps);
 
     expect(app).toMatchObject({
@@ -194,7 +238,20 @@ describe("provisionAgentTeamsApp", () => {
     expect(onPublished).toHaveBeenCalledOnce();
 
     const entra = ms.calls.find((call) => call.url.includes("uniqueName"));
-    expect(entra?.body).toEqual({ displayName: "Tony", signInAudience: "AzureADMyOrg" });
+    expect(entra?.body).toEqual({
+      displayName: "Rakazo agent: Tony",
+      signInAudience: "AzureADMyOrg",
+      tags: ["rakazo-agent-teams-app"],
+      requiredResourceAccess: [],
+    });
+    // Both grants passed the guard and were logged, with ids only.
+    expect(events.map((event) => [event.type, event.metadata.role])).toEqual([
+      ["teams.agent_app.role_assigned", "Chat.Create"],
+      ["teams.agent_app.role_assigned", "TeamsAppInstallation.ReadWriteAndConsentSelfForChat.All"],
+    ]);
+    expect(JSON.stringify(events)).not.toContain("provisioner:");
+    // The lease is released once provisioning ends.
+    expect((await store.findById(app.id))?.lockedUntil).toBeNull();
 
     const bot = ms.calls.find(
       (call) => call.method === "PUT" && call.url.includes("botServices/rakazo"),
@@ -380,6 +437,120 @@ describe("deprovisionAgentTeamsApp", () => {
     const { deps, ms } = setup();
     expect(await deprovisionAgentTeamsApp("bot_none", deps)).toBeNull();
     expect(ms.calls).toHaveLength(0);
+  });
+
+  it("does not repost a handoff when the chat step fails after posting", async () => {
+    const ms = fakeMicrosoft({
+      failOnce: (call) => call.method === "DELETE" && call.url.includes("/installedApps/"),
+    });
+    const { deps, store } = setup(ms);
+    const app = await provisionAgentTeamsApp(INPUT, deps);
+    await recordChatInstall(app.id, "19:a@thread.v2", "inst-a", { store });
+
+    await expect(deprovisionAgentTeamsApp("bot_tony", deps)).rejects.toThrow(/uninstall agent/);
+    const [chat] = await store.activeChats(app.id);
+    expect(chat?.handoffPostedAt).toEqual(new Date("2026-11-11T12:00:00Z"));
+
+    expect((await deprovisionAgentTeamsApp("bot_tony", deps))?.status).toBe("removed");
+    expect(ms.calls.filter((call) => call.url.includes("/v3/conversations/"))).toHaveLength(1);
+  });
+
+  it("posts a handoff again for a chat the agent was reinstalled in", async () => {
+    const { store } = setup();
+    const app = await store.ensure("bot_x");
+    const chat = await store.upsertChat({
+      agentAppId: app.id,
+      chatId: "19:a@thread.v2",
+      installId: null,
+      installedAt: new Date(),
+    });
+    await store.markHandoffPosted(chat.id, new Date());
+    const again = await store.upsertChat({
+      agentAppId: app.id,
+      chatId: "19:a@thread.v2",
+      installId: "inst-2",
+      installedAt: new Date(),
+    });
+    expect(again.handoffPostedAt).toBeNull();
+  });
+});
+
+describe("provision / deprovision race", () => {
+  it("removal waits (retryably) while a provision holds the row, then provisioning cannot write", async () => {
+    const { deps, store, ms } = setup();
+    let releaseCatalog: () => void = () => undefined;
+    const catalogGate = new Promise<void>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    // Provisioning pauses at the catalog step, holding the lease.
+    deps.catalogToken = async () => {
+      await catalogGate;
+      return "delegated-admin";
+    };
+    const provisioning = provisionAgentTeamsApp(INPUT, deps);
+    await vi.waitFor(async () => {
+      expect((await store.findByBotId("bot_tony"))?.status).toBe("registered");
+    });
+
+    await expect(deprovisionAgentTeamsApp("bot_tony", deps)).rejects.toBeInstanceOf(
+      AgentTeamsAppBusyError,
+    );
+    // Removal did not touch the row: still registered, no resources deleted.
+    expect((await store.findByBotId("bot_tony"))?.status).toBe("registered");
+    expect(ms.calls.some((call) => call.method === "DELETE")).toBe(false);
+
+    releaseCatalog();
+    expect((await provisioning).status).toBe("published");
+    // The retried removal now runs to the end.
+    expect((await deprovisionAgentTeamsApp("bot_tony", deps))?.status).toBe("removed");
+  });
+
+  it("a provision that finds removal started never overwrites removing or removed", async () => {
+    const { deps, store } = setup();
+    const app = await store.ensure("bot_tony");
+    await store.update(app.id, { status: "removing" });
+    await expect(provisionAgentTeamsApp(INPUT, deps)).rejects.toThrow(/being removed/);
+    expect((await store.findById(app.id))?.status).toBe("removing");
+  });
+
+  it("stops without marking failed when the status moves to removing mid-provision", async () => {
+    const { deps, store } = setup();
+    const app = await store.ensure("bot_tony");
+    // Simulates removal winning after an expired lease: the next compare-and-set write fails.
+    const original = deps.secrets.set;
+    deps.secrets.set = async (name, value) => {
+      await original(name, value);
+      await store.update(app.id, { status: "removing" });
+    };
+    await expect(provisionAgentTeamsApp(INPUT, deps)).rejects.toBeInstanceOf(
+      AgentTeamsAppRemovalStartedError,
+    );
+    const after = await store.findById(app.id);
+    expect(after?.status).toBe("removing");
+    expect(after?.secretRef).toBeNull();
+    expect(after?.lockedUntil).toBeNull();
+  });
+
+  it("an install seen during removal records nothing and keeps the status", async () => {
+    const { deps, store } = setup();
+    const app = await provisionAgentTeamsApp(INPUT, deps);
+    await store.update(app.id, { status: "removing" });
+    expect(await recordChatInstall(app.id, "19:z@thread.v2", null, { store })).toBeNull();
+    expect(await store.findById(app.id)).toMatchObject({
+      status: "removing",
+      firstInstalledAt: null,
+    });
+  });
+
+  it("an expired lease can be taken over", async () => {
+    const store = memoryAgentTeamsAppStore();
+    const app = await store.ensure("bot_a");
+    const t0 = new Date("2026-11-11T12:00:00Z");
+    expect(await store.acquireLock(app.id, new Date(t0.getTime() + 1000), t0)).toBe(true);
+    expect(await store.acquireLock(app.id, new Date(t0.getTime() + 5000), t0)).toBe(false);
+    expect(
+      await store.acquireLock(app.id, new Date(t0.getTime() + 9000), new Date(t0.getTime() + 2000)),
+    ).toBe(true);
   });
 });
 

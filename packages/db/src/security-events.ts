@@ -41,9 +41,14 @@ const FAILURE_TYPES = new Set<SecurityEventType>([
   "auth.sign_up.failed",
   "egress.refused",
   "rate_limit.hit",
+  "teams.agent_app.role_refused",
 ]);
 /** Deployment-wide signals with no account or organization to attribute them to. */
-const NOT_AUDITED = new Set<SecurityEventType>([...FAILURE_TYPES, "deployment.settings.changed"]);
+const NOT_AUDITED = new Set<SecurityEventType>([
+  ...FAILURE_TYPES,
+  "deployment.settings.changed",
+  "teams.agent_app.role_assigned",
+]);
 const MAX_METADATA_KEYS = 16;
 const MAX_METADATA_STRING = 200;
 /** Keys that could carry what a user said or a secret. Never stored, whatever the value. */

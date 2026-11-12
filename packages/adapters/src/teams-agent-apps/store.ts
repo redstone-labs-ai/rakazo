@@ -26,6 +26,8 @@ export interface AgentTeamsAppRecord {
   publishedAt: Date | null;
   firstInstalledAt: Date | null;
   lastError: string | null;
+  /** Operation lease: while in the future, a provision or removal holds the row. */
+  lockedUntil: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,10 +40,12 @@ export interface AgentTeamsChatRecord {
   installId: string | null;
   installedAt: Date;
   removedAt: Date | null;
+  /** The shared Bot's handoff was posted in this chat; a retried removal skips it. */
+  handoffPostedAt: Date | null;
 }
 
 export type AgentTeamsAppPatch = Partial<
-  Omit<AgentTeamsAppRecord, "id" | "botId" | "createdAt" | "updatedAt">
+  Omit<AgentTeamsAppRecord, "id" | "botId" | "lockedUntil" | "createdAt" | "updatedAt">
 >;
 
 /**
@@ -54,6 +58,22 @@ export interface AgentTeamsAppStore {
   /** Creates the row in `creating`, or returns the existing one for this bot. */
   ensure(botId: string): Promise<AgentTeamsAppRecord>;
   update(id: string, patch: AgentTeamsAppPatch): Promise<AgentTeamsAppRecord>;
+  /**
+   * Compare-and-set: applies the patch only while the row's status is one of `statuses`.
+   * Null, with nothing written, when the status had moved on (e.g. removal started).
+   */
+  updateIfStatus(
+    id: string,
+    statuses: readonly string[],
+    patch: AgentTeamsAppPatch,
+  ): Promise<AgentTeamsAppRecord | null>;
+  /**
+   * Takes the row's operation lease until `until` when it is free (unset, or expired at `now`).
+   * False when another provision or removal holds it.
+   */
+  acquireLock(id: string, until: Date, now: Date): Promise<boolean>;
+  /** Releases the lease taken with `acquireLock`. */
+  releaseLock(id: string): Promise<void>;
   /** Chats the agent app is still installed in. */
   activeChats(agentAppId: string): Promise<AgentTeamsChatRecord[]>;
   chatCount(agentAppId: string): Promise<number>;
@@ -65,6 +85,7 @@ export interface AgentTeamsAppStore {
     installedAt: Date;
   }): Promise<AgentTeamsChatRecord>;
   markChatRemoved(id: string, removedAt: Date): Promise<void>;
+  markHandoffPosted(id: string, postedAt: Date): Promise<void>;
 }
 
 /** The Prisma store. The tables hold no tenant data, so every call runs as system. */
@@ -89,6 +110,27 @@ export function prismaAgentTeamsAppStore(prisma: PrismaClient): AgentTeamsAppSto
       system("update an agent Teams app", () =>
         prisma.agentTeamsApp.update({ where: { id }, data: patch }),
       ),
+    updateIfStatus: (id, statuses, patch) =>
+      system("update an agent Teams app if its status allows", async () => {
+        const { count } = await prisma.agentTeamsApp.updateMany({
+          where: { id, status: { in: [...statuses] } },
+          data: patch,
+        });
+        return count ? prisma.agentTeamsApp.findUnique({ where: { id } }) : null;
+      }),
+    acquireLock: (id, until, now) =>
+      system("lock an agent Teams app", async () => {
+        const { count } = await prisma.agentTeamsApp.updateMany({
+          where: { id, OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
+          data: { lockedUntil: until },
+        });
+        return count === 1;
+      }),
+    releaseLock: async (id) => {
+      await system("unlock an agent Teams app", () =>
+        prisma.agentTeamsApp.updateMany({ where: { id }, data: { lockedUntil: null } }),
+      );
+    },
     activeChats: (agentAppId) =>
       system("list an agent Teams app's chats", () =>
         prisma.agentTeamsChat.findMany({
@@ -105,12 +147,18 @@ export function prismaAgentTeamsAppStore(prisma: PrismaClient): AgentTeamsAppSto
         prisma.agentTeamsChat.upsert({
           where: { agentAppId_chatId: { agentAppId, chatId } },
           create: { agentAppId, chatId, installId, installedAt },
-          update: { installId, installedAt, removedAt: null },
+          // A new install is a new membership: its handoff has not been posted yet.
+          update: { installId, installedAt, removedAt: null, handoffPostedAt: null },
         }),
       ),
     markChatRemoved: async (id, removedAt) => {
       await system("mark an agent Teams app chat removed", () =>
         prisma.agentTeamsChat.update({ where: { id }, data: { removedAt } }),
+      );
+    },
+    markHandoffPosted: async (id, handoffPostedAt) => {
+      await system("record an agent Teams app handoff", () =>
+        prisma.agentTeamsChat.update({ where: { id }, data: { handoffPostedAt } }),
       );
     },
   };
@@ -126,6 +174,11 @@ export function memoryAgentTeamsAppStore(now: () => Date = () => new Date()): Ag
   let sequence = 0;
   const nextId = (prefix: string) => `${prefix}_${++sequence}`;
   const byBot = (botId: string) => [...apps.values()].find((app) => app.botId === botId) ?? null;
+  const patchApp = (app: AgentTeamsAppRecord, patch: AgentTeamsAppPatch) => {
+    const updated = { ...app, ...patch, updatedAt: now() };
+    apps.set(app.id, updated);
+    return { ...updated };
+  };
   return {
     apps,
     chats,
@@ -154,6 +207,7 @@ export function memoryAgentTeamsAppStore(now: () => Date = () => new Date()): Ag
         publishedAt: null,
         firstInstalledAt: null,
         lastError: null,
+        lockedUntil: null,
         createdAt: at,
         updatedAt: at,
       };
@@ -163,9 +217,22 @@ export function memoryAgentTeamsAppStore(now: () => Date = () => new Date()): Ag
     update: async (id, patch) => {
       const app = apps.get(id);
       if (!app) throw new Error(`No agent Teams app ${id}`);
-      const updated = { ...app, ...patch, updatedAt: now() };
-      apps.set(id, updated);
-      return { ...updated };
+      return patchApp(app, patch);
+    },
+    updateIfStatus: async (id, statuses, patch) => {
+      const app = apps.get(id);
+      if (!app || !statuses.includes(app.status)) return null;
+      return patchApp(app, patch);
+    },
+    acquireLock: async (id, until, at) => {
+      const app = apps.get(id);
+      if (!app || (app.lockedUntil && app.lockedUntil >= at)) return false;
+      apps.set(id, { ...app, lockedUntil: until });
+      return true;
+    },
+    releaseLock: async (id) => {
+      const app = apps.get(id);
+      if (app) apps.set(id, { ...app, lockedUntil: null });
     },
     activeChats: async (agentAppId) =>
       [...chats.values()]
@@ -179,14 +246,26 @@ export function memoryAgentTeamsAppStore(now: () => Date = () => new Date()): Ag
         (chat) => chat.agentAppId === agentAppId && chat.chatId === chatId,
       );
       const chat: AgentTeamsChatRecord = existing
-        ? { ...existing, installId, installedAt, removedAt: null }
-        : { id: nextId("chat"), agentAppId, chatId, installId, installedAt, removedAt: null };
+        ? { ...existing, installId, installedAt, removedAt: null, handoffPostedAt: null }
+        : {
+            id: nextId("chat"),
+            agentAppId,
+            chatId,
+            installId,
+            installedAt,
+            removedAt: null,
+            handoffPostedAt: null,
+          };
       chats.set(chat.id, chat);
       return { ...chat };
     },
     markChatRemoved: async (id, removedAt) => {
       const chat = chats.get(id);
       if (chat) chats.set(id, { ...chat, removedAt });
+    },
+    markHandoffPosted: async (id, handoffPostedAt) => {
+      const chat = chats.get(id);
+      if (chat) chats.set(id, { ...chat, handoffPostedAt });
     },
   };
 }

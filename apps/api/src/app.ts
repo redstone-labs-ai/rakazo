@@ -939,6 +939,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         .map((platform) => platform.provider),
     },
     env: {
+      teamsAgentAppsEnabled: env.teamsAgentAppsEnabled,
       phoneCallsEnabled: env.phoneCallsEnabled,
       phoneCallRingSeconds: env.phoneCallRingSeconds,
       ticketBoardEnabled,

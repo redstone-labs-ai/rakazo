@@ -11,7 +11,8 @@ export const BOT_CONNECTOR_SCOPE = "https://api.botframework.com/.default";
 /** Microsoft Graph's own service principal app id, the resource of Graph app roles. */
 export const MICROSOFT_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000";
 
-const TOKEN_EARLY_RENEW_MS = 60_000;
+/** Tokens are renewed five minutes before they expire. */
+export const TOKEN_EARLY_RENEW_MS = 5 * 60_000;
 
 /**
  * A Graph, ARM or Bot Connector failure. The message carries the status and the service error
@@ -106,7 +107,32 @@ interface CachedToken {
 }
 
 /**
- * Client-credential tokens for one app, cached per scope. A failed request leaves no cache entry.
+ * Caches one token per scope until `TOKEN_EARLY_RENEW_MS` before it expires. Concurrent callers
+ * share one request; a failed request leaves no cache entry.
+ */
+function cachedTokens(
+  request: (scope: string) => Promise<CachedToken>,
+  now: () => number,
+): TokenProvider {
+  const cache = new Map<string, Promise<CachedToken>>();
+  return async (scope) => {
+    const cached = cache.get(scope);
+    if (cached) {
+      const entry = await cached.catch(() => undefined);
+      if (entry && entry.expiresAt - TOKEN_EARLY_RENEW_MS > now()) return entry.token;
+    }
+    const pending = request(scope);
+    cache.set(scope, pending);
+    pending.catch(() => {
+      if (cache.get(scope) === pending) cache.delete(scope);
+    });
+    return (await pending).token;
+  };
+}
+
+/**
+ * Client-credential tokens for one app (an agent's own Entra app, or the shared Bot), cached per
+ * scope.
  */
 export function clientCredentialTokens(options: {
   tenantId: string;
@@ -116,8 +142,7 @@ export function clientCredentialTokens(options: {
   now?: () => number;
 }): TokenProvider {
   const now = options.now ?? Date.now;
-  const cache = new Map<string, Promise<CachedToken>>();
-  const request = async (scope: string): Promise<CachedToken> => {
+  return cachedTokens(async (scope) => {
     const response = await options.fetch(
       `https://login.microsoftonline.com/${encodeURIComponent(options.tenantId)}/oauth2/v2.0/token`,
       {
@@ -143,18 +168,91 @@ export function clientCredentialTokens(options: {
     }
     const expiresIn = typeof body?.expires_in === "number" ? body.expires_in : 3600;
     return { token, expiresAt: now() + expiresIn * 1000 };
-  };
-  return async (scope) => {
-    const cached = cache.get(scope);
-    if (cached) {
-      const entry = await cached.catch(() => undefined);
-      if (entry && entry.expiresAt - TOKEN_EARLY_RENEW_MS > now()) return entry.token;
+  }, now);
+}
+
+/** The only resources the provisioner's managed identity asks tokens for. */
+export const MANAGED_IDENTITY_RESOURCES = [
+  "https://graph.microsoft.com",
+  "https://management.azure.com",
+  "https://vault.azure.net",
+] as const;
+const MANAGED_IDENTITY_API_VERSION = "2019-08-01";
+
+/** `https://graph.microsoft.com/.default` → `https://graph.microsoft.com`. */
+export function scopeResource(scope: string): string {
+  return scope.replace(/\/\.default$/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Tokens for a user-assigned managed identity in Azure Container Apps (or App Service): a GET to
+ * the platform's IDENTITY_ENDPOINT with its IDENTITY_HEADER. No client secret exists anywhere.
+ * Cached per resource until five minutes before expiry. Only Graph, ARM and Key Vault are asked.
+ */
+export function managedIdentityTokens(options: {
+  /** IDENTITY_ENDPOINT, set by the platform. */
+  endpoint: string;
+  /** IDENTITY_HEADER, set by the platform. */
+  header: string;
+  /** The user-assigned identity's client id (TEAMS_AGENT_APPS_IDENTITY_CLIENT_ID). */
+  clientId: string;
+  fetch: FetchLike;
+  now?: () => number;
+}): TokenProvider {
+  const now = options.now ?? Date.now;
+  const allowed = new Set<string>(MANAGED_IDENTITY_RESOURCES);
+  return cachedTokens(async (scope) => {
+    const resource = scopeResource(scope);
+    if (!allowed.has(resource)) {
+      throw new Error(`managed identity tokens are not issued for ${resource}`);
     }
-    const pending = request(scope);
-    cache.set(scope, pending);
-    pending.catch(() => {
-      if (cache.get(scope) === pending) cache.delete(scope);
+    const query = new URLSearchParams({
+      "api-version": MANAGED_IDENTITY_API_VERSION,
+      resource,
+      client_id: options.clientId,
     });
-    return (await pending).token;
-  };
+    const separator = options.endpoint.includes("?") ? "&" : "?";
+    const response = await options.fetch(`${options.endpoint}${separator}${query.toString()}`, {
+      method: "GET",
+      headers: { "X-IDENTITY-HEADER": options.header },
+    });
+    const body = await readJson(response);
+    const token = stringField(body, "access_token");
+    if (!response.ok || !token) {
+      const code = stringField(body, "error") || undefined;
+      throw new MicrosoftApiError(
+        `managed identity token request failed (${response.status}${code ? ` ${code}` : ""})`,
+        response.status,
+        code,
+      );
+    }
+    return { token, expiresAt: managedIdentityExpiry(body, now()) };
+  }, now);
+}
+
+/** `expires_on` (epoch seconds, a string or number) or `expires_in`; an hour when neither. */
+function managedIdentityExpiry(body: Record<string, unknown> | undefined, at: number): number {
+  const expiresOn = Number(body?.expires_on);
+  if (Number.isFinite(expiresOn) && expiresOn > 0) return expiresOn * 1000;
+  const expiresIn = Number(body?.expires_in);
+  if (Number.isFinite(expiresIn) && expiresIn > 0) return at + expiresIn * 1000;
+  return at + 3600_000;
+}
+
+/**
+ * The `oid` claim of an access token: the object id of the principal it was issued to. Only
+ * read from the provisioner's own freshly issued token, never from a caller.
+ */
+export function tokenObjectId(token: string): string {
+  const payload = token.split(".")[1];
+  if (!payload) throw new Error("access token is not a JWT");
+  let claims: Record<string, unknown> | undefined;
+  try {
+    claims = asRecord(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
+  } catch {
+    claims = undefined;
+  }
+  const oid = stringField(claims, "oid");
+  if (!oid) throw new Error("access token has no oid claim");
+  return oid;
 }
