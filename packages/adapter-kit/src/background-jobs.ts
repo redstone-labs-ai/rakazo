@@ -28,6 +28,7 @@ const payloadSchemas = {
     installationId: z.string().min(1),
     ref: z.string().min(1),
   }),
+  "teams.agent-app-provision": z.object({ botId: z.string().min(1) }),
   "teams.agent-app-deprovision": z.object({
     botId: z.string().min(1),
     agentName: z.string(),
@@ -171,6 +172,21 @@ export function messagingDeliverJob(runId?: string, availableAt?: Date): Backgro
     payload: runId ? { runId } : {},
     replaceKey: `messaging.deliver:${runId ?? "drain"}`,
     ...(availableAt ? { availableAt } : {}),
+  };
+}
+
+/**
+ * Provisioning resumes from the row on every attempt. Few retries: a failure is shown to the
+ * owner, who retries from the UI.
+ */
+export function teamsAgentAppProvisionJob(
+  payload: BackgroundJobPayloads["teams.agent-app-provision"],
+): BackgroundJob {
+  return {
+    name: "teams.agent-app-provision",
+    payload,
+    replaceKey: `teams.agent-app-provision:${payload.botId}`,
+    maxAttempts: 3,
   };
 }
 

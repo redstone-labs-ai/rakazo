@@ -21,6 +21,8 @@ import {
   SandboxRateLimitError,
   SandboxUnavailableError,
   SandboxUnresponsiveError,
+  teamsAgentAppDeprovisionJob,
+  teamsAgentAppProvisionJob,
   VoiceAccountError,
 } from "@rakazo/adapter-kit";
 import type {
@@ -87,13 +89,13 @@ import {
   piSessionsRoot,
   prismaAgentTeamsApps,
   prismaAgentTeamsChatInstalls,
-  refreshAgentTeamsPlatforms,
   RunJobPublisher,
   RunStarter,
   reconcileCloudAgents,
   reconcileComputerUpdates,
   reconcileMediaVideos,
   reconcilePurchases,
+  refreshAgentTeamsPlatforms,
   removePiUserSessions,
   resolveDeploymentModel,
   ScriptedAgentRuntime,
@@ -112,7 +114,10 @@ import {
   verifyModelServesAgents,
   withSecretPersistence,
 } from "@rakazo/adapters";
-import { teamsAgentAppsFromEnv } from "@rakazo/adapters/teams-agent-apps";
+import {
+  visibilityStatus as agentTeamsVisibilityStatus,
+  teamsAgentAppsFromEnv,
+} from "@rakazo/adapters/teams-agent-apps";
 import { createAuth, isBlockedAuthPath, loopbackTwinOrigins } from "@rakazo/auth";
 import type { Actor, AuthCapabilities } from "@rakazo/contracts";
 import {
@@ -216,7 +221,7 @@ import {
   TEAM_CHAT_STARTUP_SHUTDOWN_MS,
   TeamChatStartupRetries,
 } from "./team-chat-startup.js";
-import { mountTeamsAgentAppRoutes, prismaOwnsBot } from "./teams-agent-apps.js";
+import { mountTeamsAgentAppRoutes, prismaOwnsBot, storeFindApp } from "./teams-agent-apps.js";
 import { managebotTeamsListening } from "./teams-listening.js";
 import { endUserDeviceSession, mountUserDeviceRoutes } from "./user-devices.js";
 import { mountVoiceHttpRoutes, transcribeInboundVoice, voiceAccountErrorStatus } from "./voice.js";
@@ -499,7 +504,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           // The provisioner writes app passwords to Key Vault, so the router reads them there.
           readSecret:
             agentTeamsSecretReader ??
-            (teamsAgentAppsDeps ? (ref) => teamsAgentAppsDeps.secrets.get(ref) : async () => undefined),
+            (teamsAgentAppsDeps
+              ? (ref) => teamsAgentAppsDeps.secrets.get(ref)
+              : async () => undefined),
           installs: prismaAgentTeamsChatInstalls(prisma),
         })
       : undefined;
@@ -1138,16 +1145,23 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   });
   mountAccountExportRoute(app, { prisma, auth, artifacts, home });
   mountAuditExportRoute(app, { prisma, sessionActor });
-  // Stays off until the provisioner and its tables land; then wire them here behind
-  // TEAMS_AGENT_APPS_ENABLED.
+  // TEAMS_AGENT_APPS_ENABLED off: GET answers enabled:false and every change 404s.
   mountTeamsAgentAppRoutes(app, {
-    enabled: false,
+    enabled: Boolean(env.teamsAgentAppsEnabled && teamsAgentAppsDeps),
     sessionActor,
     ownsBot: prismaOwnsBot(prisma),
-    findApp: async () => null,
-    visibilityStatus: () => ({ step: "creating", label: "Creating", estimated: false }),
-    start: async () => {
-      throw new Error("Agent apps are not available");
+    findApp: teamsAgentAppsDeps ? storeFindApp(teamsAgentAppsDeps.store) : async () => null,
+    visibilityStatus: agentTeamsVisibilityStatus,
+    // Provisioning talks to Graph and ARM for minutes, so it runs on the job queue.
+    start: async (job, botId) => {
+      if (job === "deprovision") {
+        const bot = await runAsSystem("name an agent for its Teams handoff", () =>
+          prisma.bot.findUnique({ where: { id: botId }, select: { name: true } }),
+        );
+        await jobs.enqueue(teamsAgentAppDeprovisionJob({ botId, agentName: bot?.name ?? "" }));
+        return;
+      }
+      await jobs.enqueue(teamsAgentAppProvisionJob({ botId }));
     },
   });
   mountVoiceHttpRoutes(app, { prisma, secrets, env }, async (c) => {

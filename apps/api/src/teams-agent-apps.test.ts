@@ -1,8 +1,9 @@
+import { memoryAgentTeamsAppStore, visibilityStatus } from "@rakazo/adapters/teams-agent-apps";
 import type { Actor } from "@rakazo/contracts";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentTeamsAppRecord, TeamsAgentAppsDeps } from "./teams-agent-apps.js";
-import { mountTeamsAgentAppRoutes } from "./teams-agent-apps.js";
+import { mountTeamsAgentAppRoutes, storeFindApp } from "./teams-agent-apps.js";
 
 const owner: Actor = {
   userId: "user-owner",
@@ -146,5 +147,57 @@ describe("teams agent app routes", () => {
 
     expect((await setup({}).call("DELETE")).status).toBe(409);
     expect((await setup({ app: record({ status: "removing" }) }).call("DELETE")).status).toBe(409);
+  });
+});
+
+describe("teams agent app routes over the provisioner", () => {
+  it("reads the store's row and active chats, and the provisioner's step", async () => {
+    const store = memoryAgentTeamsAppStore(() => now);
+    const row = await store.ensure("bot-1");
+    await store.update(row.id, {
+      status: "visible",
+      publishedAt: new Date("2026-11-11T11:00:00.000Z"),
+      firstInstalledAt: new Date("2026-11-11T11:30:00.000Z"),
+    });
+    await store.upsertChat({
+      agentAppId: row.id,
+      chatId: "chat-a",
+      installId: null,
+      installedAt: new Date("2026-11-11T11:30:00.000Z"),
+    });
+    const gone = await store.upsertChat({
+      agentAppId: row.id,
+      chatId: "chat-gone",
+      installId: null,
+      installedAt: new Date("2026-11-11T11:10:00.000Z"),
+    });
+    await store.markChatRemoved(gone.id, now);
+    const app = new Hono();
+    mountTeamsAgentAppRoutes(app, {
+      enabled: true,
+      sessionActor: async () => owner,
+      ownsBot: async () => true,
+      findApp: storeFindApp(store),
+      visibilityStatus,
+      start: async () => undefined,
+      now: () => now,
+    });
+    const body = await (await app.request("/api/bots/bot-1/teams-app")).json();
+    expect(body.app).toMatchObject({
+      status: "visible",
+      step: "in_chats",
+      chatCount: 1,
+      chats: [{ chatId: "chat-a" }],
+    });
+  });
+
+  it("reports a failed provision as the failed step with its stored error", async () => {
+    const store = memoryAgentTeamsAppStore(() => now);
+    const row = await store.ensure("bot-1");
+    await store.update(row.id, { status: "failed", lastError: "create Entra app failed (403)" });
+    const found = await storeFindApp(store)("bot-1");
+    expect(found?.status).toBe("failed");
+    expect(found && visibilityStatus(found, now, 0).step).toBe("failed");
+    expect(await storeFindApp(store)("bot-other")).toBeNull();
   });
 });

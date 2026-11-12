@@ -787,6 +787,8 @@ export interface BackgroundJobPayloads {
   "history.compact": { threadId: string };
   "messaging.deliver": { runId?: string };
   "messaging.credential-cleanup": { installationId: string; ref: string };
+  /** Create (or resume) an agent's own Teams app (TEAMS_AGENT_APPS_ENABLED). */
+  "teams.agent-app-provision": { botId: string };
   /** Remove a deleted agent's own Teams app (TEAMS_AGENT_APPS_ENABLED); retried until done. */
   "teams.agent-app-deprovision": { botId: string; agentName: string };
   /** Reconcile durable remote-agent intent; scope is loaded from the database. */

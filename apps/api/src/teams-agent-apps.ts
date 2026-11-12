@@ -1,24 +1,20 @@
+import type {
+  AgentTeamsAppStatus,
+  AgentTeamsAppStore,
+  AgentTeamsVisibilityStep,
+} from "@rakazo/adapters/teams-agent-apps";
+import { AGENT_TEAMS_APP_STATUSES } from "@rakazo/adapters/teams-agent-apps";
 import type { Actor } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { runAsTenant } from "@rakazo/db";
 import type { Hono } from "hono";
 
-/*
- * Contract stubs: the provisioner (`packages/adapters/src/teams-agent-apps/`) and the
- * `AgentTeamsApp` / `AgentTeamsChat` Prisma models land in a sibling branch. These local
- * shapes mirror them so the composition root can inject the real functions once merged.
- */
-export type AgentTeamsAppStatus =
-  | "creating"
-  | "registered"
-  | "published"
-  | "visible"
-  | "removing"
-  | "removed"
-  | "failed";
+export type { AgentTeamsAppStatus };
 
-export type AgentTeamsAppStep = "creating" | "registered" | "published" | "visible" | "in_chats";
+/** UI step, from the provisioner's `visibilityStatus`. */
+export type AgentTeamsAppStep = AgentTeamsVisibilityStep;
 
+/** One `agent_teams_apps` row as the routes read it, with every chat it was installed in. */
 export interface AgentTeamsAppRecord {
   status: AgentTeamsAppStatus;
   publishedAt: Date | null;
@@ -43,8 +39,12 @@ export interface TeamsAgentAppsDeps {
   ownsBot: (actor: Actor, botId: string) => Promise<boolean>;
   /** Reads `agent_teams_apps` with its chats; null when the bot has none. */
   findApp: (botId: string) => Promise<AgentTeamsAppRecord | null>;
-  /** `visibilityStatus(app, now)` from the provisioner. */
-  visibilityStatus: (app: AgentTeamsAppRecord, now: Date) => AgentTeamsAppVisibility;
+  /** `visibilityStatus(app, now, chatCount)` from the provisioner. */
+  visibilityStatus: (
+    app: AgentTeamsAppRecord,
+    now: Date,
+    chatCount: number,
+  ) => AgentTeamsAppVisibility;
   /**
    * Starts `provisionAgentTeamsApp` / `deprovisionAgentTeamsApp` in the background (job queue
    * in production). Resolves once the work is queued, not when it finishes.
@@ -82,16 +82,43 @@ export function prismaOwnsBot(prisma: PrismaClient) {
     );
 }
 
+function isAgentTeamsAppStatus(value: string): value is AgentTeamsAppStatus {
+  return (AGENT_TEAMS_APP_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * `findApp` over the provisioner's store. The routes list only active chats, so removed ones
+ * are not loaded. An unknown status reads as "failed".
+ */
+export function storeFindApp(store: AgentTeamsAppStore): TeamsAgentAppsDeps["findApp"] {
+  return async (botId) => {
+    const row = await store.findByBotId(botId);
+    if (!row) return null;
+    const chats = await store.activeChats(row.id);
+    return {
+      status: isAgentTeamsAppStatus(row.status) ? row.status : "failed",
+      publishedAt: row.publishedAt,
+      firstInstalledAt: row.firstInstalledAt,
+      lastError: row.lastError,
+      chats: chats.map(({ chatId, installedAt, removedAt }) => ({
+        chatId,
+        installedAt,
+        removedAt,
+      })),
+    };
+  };
+}
+
 export function teamsAppView(
   app: AgentTeamsAppRecord | null,
   visibilityStatus: TeamsAgentAppsDeps["visibilityStatus"],
   now: Date,
 ): TeamsAppResponse["app"] {
   if (!app || app.status === "removed") return null;
-  const { step, label, estimated } = visibilityStatus(app, now);
   const chats = app.chats
     .filter((chat) => chat.removedAt === null)
     .map((chat) => ({ chatId: chat.chatId, installedAt: chat.installedAt.toISOString() }));
+  const { step, label, estimated } = visibilityStatus(app, now, chats.length);
   return {
     status: app.status,
     step,

@@ -36,6 +36,7 @@ import { pollPurchase } from "./purchase-poll.js";
 import { expireTaughtSkillTeaching } from "./teaching-session.js";
 import { deprovisionAgentTeamsApp } from "./teams-agent-apps/deprovision.js";
 import type { AgentTeamsDeprovisionDeps } from "./teams-agent-apps/deps.js";
+import { provisionAgentTeamsApp } from "./teams-agent-apps/provision.js";
 
 type Tenant = { spaceId: string; userId: string };
 
@@ -165,6 +166,28 @@ export function createBackgroundJobHandlers(deps: {
           signal: AbortSignal.timeout(10_000),
         });
       });
+    },
+    "teams.agent-app-provision": async ({ botId }) => {
+      const teamsAgentApps = deps.teamsAgentApps;
+      if (!teamsAgentApps) {
+        getLogger().warn("teams.agent-app-provision skipped: agent Teams apps are not configured", {
+          botId,
+        });
+        return;
+      }
+      const bot = await runAsSystem("read an agent for its Teams app", () =>
+        deps.prisma.bot.findUnique({
+          where: { id: botId },
+          select: { name: true, description: true, color: true, archivedAt: true },
+        }),
+      );
+      // A deleted or archived agent gets no new app; bot removal tears down what exists.
+      if (!bot || bot.archivedAt) return;
+      // A failure marks the row failed (lastError is redacted) and throws, so the queue retries.
+      await provisionAgentTeamsApp(
+        { botId, name: bot.name, description: bot.description, color: bot.color },
+        teamsAgentApps,
+      );
     },
     "teams.agent-app-deprovision": async ({ botId, agentName }) => {
       if (!deps.teamsAgentApps) {

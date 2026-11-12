@@ -2,9 +2,9 @@ import type { PrismaClient } from "@rakazo/db";
 import { runAsSystem } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import type { MessagingPlatform } from "./chat-sdk-surface.js";
-import type { TeamsAgentBot } from "./teams-messaging.js";
 import { markChatRemoved, recordChatInstall } from "./teams-agent-apps/provision.js";
 import { prismaAgentTeamsAppStore } from "./teams-agent-apps/store.js";
+import type { TeamsAgentBot } from "./teams-messaging.js";
 import { teamsAgentProvider, teamsPlatform } from "./teams-messaging.js";
 
 /** One TEAMS_AGENT_APPS_ENABLED check, shared with the provisioner. */
@@ -217,7 +217,9 @@ export class TeamsAgentAppRouter {
     const chatId = teamsChatIdOfActivity(activity);
     if (!activity || !chatId) return;
     const key = `${rowId}|${chatId}`;
-    const installId = typeof activity.id === "string" && activity.id ? activity.id : null;
+    // An activity id is not a Graph chat install id (`installedApps/{id}`); deprovisioning
+    // looks the install up by catalog app id when none is stored.
+    const installId = null;
     if (activity.type === "installationUpdate") {
       const action = typeof activity.action === "string" ? activity.action : "";
       if (action.startsWith("remove")) {

@@ -18,6 +18,9 @@ import { createRunExecutor } from "./executor.js";
 import { compactHistory } from "./history-compaction.js";
 import { deliverMessagingOutbound, mirrorMessagingOutbound } from "./messaging-delivery.js";
 import type { EncryptedSecretStore } from "./secrets.js";
+import type { AgentTeamsDeprovisionDeps } from "./teams-agent-apps/deps.js";
+import type * as Provision from "./teams-agent-apps/provision.js";
+import { provisionAgentTeamsApp } from "./teams-agent-apps/provision.js";
 
 vi.mock("./history-compaction.js", () => ({ compactHistory: vi.fn(async () => undefined) }));
 vi.mock("./computer-control.js", async (importOriginal) => ({
@@ -27,6 +30,11 @@ vi.mock("./computer-control.js", async (importOriginal) => ({
 vi.mock("./messaging-delivery.js", () => ({
   deliverMessagingOutbound: vi.fn(async () => undefined),
   mirrorMessagingOutbound: vi.fn(async () => undefined),
+}));
+
+vi.mock("./teams-agent-apps/provision.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof Provision>()),
+  provisionAgentTeamsApp: vi.fn(async () => undefined),
 }));
 
 const owner = { spaceId: "space-1", userId: "user-1" };
@@ -298,4 +306,51 @@ it("retries retired messaging credentials without deleting a currently reference
   await expect(
     handlers["messaging.credential-cleanup"]({ installationId: "install-a", ref: "retired-ref" }),
   ).rejects.toThrow("temporarily unavailable");
+});
+
+describe("teams.agent-app-provision", () => {
+  function handlersFor(
+    bot: { name: string; description: string; color: string; archivedAt: Date | null } | null,
+    teamsAgentApps: AgentTeamsDeprovisionDeps | undefined,
+  ) {
+    return createBackgroundJobHandlers({
+      executor: {} as unknown as ReturnType<typeof createRunExecutor>,
+      prisma: { bot: { findUnique: vi.fn(async () => bot) } } as unknown as PrismaClient,
+      sandbox: {} as unknown as SandboxProvider,
+      home: {} as unknown as AgentHomeStore,
+      artifacts: {} as unknown as ArtifactStore,
+      jobs: { enqueue: vi.fn(async () => undefined) } as unknown as JobPublisher,
+      events: {} as unknown as ThreadEvents,
+      workerId: "worker-1",
+      runtime: {} as unknown as AgentRuntime,
+      secretStore: {} as unknown as EncryptedSecretStore,
+      memoryProviders: { resolve: vi.fn(async () => null) },
+      teamsAgentApps,
+    });
+  }
+  const deps = {} as unknown as AgentTeamsDeprovisionDeps;
+
+  it("provisions the agent's app from its name, description and color", async () => {
+    vi.mocked(provisionAgentTeamsApp).mockClear();
+    const handlers = handlersFor(
+      { name: "Ada", description: "Leasing", color: "#336699", archivedAt: null },
+      deps,
+    );
+    await handlers["teams.agent-app-provision"]({ botId: "bot-1" });
+    expect(provisionAgentTeamsApp).toHaveBeenCalledWith(
+      { botId: "bot-1", name: "Ada", description: "Leasing", color: "#336699" },
+      deps,
+    );
+  });
+
+  it("does nothing while the feature is off, or for a deleted or archived agent", async () => {
+    vi.mocked(provisionAgentTeamsApp).mockClear();
+    const live = { name: "Ada", description: "", color: "#000000", archivedAt: null };
+    await handlersFor(live, undefined)["teams.agent-app-provision"]({ botId: "bot-1" });
+    await handlersFor(null, deps)["teams.agent-app-provision"]({ botId: "bot-1" });
+    await handlersFor({ ...live, archivedAt: new Date() }, deps)["teams.agent-app-provision"]({
+      botId: "bot-1",
+    });
+    expect(provisionAgentTeamsApp).not.toHaveBeenCalled();
+  });
 });

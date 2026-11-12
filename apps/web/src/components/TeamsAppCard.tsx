@@ -28,7 +28,9 @@ type TeamsAppStatus =
   | "removed"
   | "failed";
 
-type TeamsAppStep = "creating" | "registered" | "published" | "visible" | "in_chats";
+type TeamsAppProgressStep = "creating" | "registered" | "published" | "visible" | "in_chats";
+/** The provisioner's `visibilityStatus` step: progress, or one of the terminal/teardown states. */
+type TeamsAppStep = TeamsAppProgressStep | "removing" | "removed" | "failed";
 
 export type TeamsAppState = {
   enabled: boolean;
@@ -45,7 +47,7 @@ export type TeamsAppState = {
   };
 };
 
-const STEPS: readonly TeamsAppStep[] = [
+const STEPS: readonly TeamsAppProgressStep[] = [
   "creating",
   "registered",
   "published",
@@ -59,6 +61,10 @@ const POLLING: ReadonlySet<TeamsAppStatus> = new Set([
   "removing",
 ]);
 export const TEAMS_APP_POLL_MS = 10_000;
+
+function isProgressStep(step: TeamsAppStep): step is TeamsAppProgressStep {
+  return (STEPS as readonly TeamsAppStep[]).includes(step);
+}
 
 function endpoint(botId: string, suffix = "") {
   return `/api/bots/${encodeURIComponent(botId)}/teams-app${suffix}`;
@@ -112,7 +118,13 @@ export function TeamsAppCard({ botId, botName }: { botId: string; botName: strin
       <div className="space-y-4 rounded-xl bg-muted/50 p-4">
         {app ? (
           <>
-            <TeamsAppSteps app={app} botName={botName} />
+            {isProgressStep(app.step) ? (
+              <TeamsAppSteps app={app} step={app.step} botName={botName} />
+            ) : app.step === "removed" ? (
+              <p className="text-[13px] text-muted-foreground" data-testid="teams-app-removed">
+                <Trans>Removed from Teams</Trans>
+              </p>
+            ) : null}
             {app.status === "failed" ? (
               <div className="flex items-start justify-between gap-3" role="alert">
                 <p className="text-[13px] text-destructive">{app.lastError ?? t`Setup failed`}</p>
@@ -128,7 +140,12 @@ export function TeamsAppCard({ botId, botName }: { botId: string; botName: strin
               </div>
             ) : null}
             <TeamsAppChats chats={app.chats} chatCount={app.chatCount} />
-            {app.status === "removing" ? (
+            {app.status === "removed" ? (
+              <Button size="sm" disabled={pending !== null} onClick={() => action.mutate("create")}>
+                {pending === "create" ? <Spinner aria-hidden /> : null}
+                <Trans>Give {botName} its own Teams app</Trans>
+              </Button>
+            ) : app.status === "removing" ? (
               <p className="text-[13px] text-muted-foreground text-shimmer">
                 <Trans>Removing…</Trans>
               </p>
@@ -190,14 +207,16 @@ export function TeamsAppCard({ botId, botName }: { botId: string; botName: strin
 
 export function TeamsAppSteps({
   app,
+  step: currentStep,
   botName,
 }: {
   app: NonNullable<TeamsAppState["app"]>;
+  step: TeamsAppProgressStep;
   botName: string;
 }) {
   const { t } = useLingui();
-  const current = STEPS.indexOf(app.step);
-  const titles: Record<TeamsAppStep, string> = {
+  const current = STEPS.indexOf(currentStep);
+  const titles: Record<TeamsAppProgressStep, string> = {
     creating: t`Creating`,
     registered: t`Registered`,
     published: t`Published to catalog`,

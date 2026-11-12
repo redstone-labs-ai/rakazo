@@ -170,6 +170,36 @@ describe("TeamsAppCard", () => {
     expect(calls).toContainEqual({ url: "/api/bots/bot-1/teams-app/retry", method: "POST" });
   });
 
+  it("shows the provisioner's failed step with its error and a retry, without a stepper", async () => {
+    state = {
+      enabled: true,
+      app: app({ status: "failed", step: "failed", lastError: "create Azure Bot failed (409)" }),
+    };
+    await render();
+    expect(stepStatuses()).toEqual([]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "create Azure Bot failed (409)",
+    );
+    expect(button("Retry")).toBeDefined();
+  });
+
+  it("shows removal in progress and offers no second removal", async () => {
+    state = { enabled: true, app: app({ status: "removing", step: "removing", chatCount: 0 }) };
+    await render();
+    expect(stepStatuses()).toEqual([]);
+    expect(text()).toContain("Removing…");
+    expect(button("Remove from Teams")).toBeUndefined();
+  });
+
+  it("offers to create the app again once removed", async () => {
+    state = { enabled: true, app: app({ status: "removed", step: "removed" }) };
+    await render();
+    expect(container.querySelector('[data-testid="teams-app-removed"]')).not.toBeNull();
+    expect(button("Remove from Teams")).toBeUndefined();
+    await act(async () => button("Give Tony its own Teams app")?.click());
+    expect(calls).toContainEqual({ url: "/api/bots/bot-1/teams-app", method: "POST" });
+  });
+
   it("confirms removal in a dialog before deleting", async () => {
     state = { enabled: true, app: app({ status: "visible", step: "visible" }) };
     await render();

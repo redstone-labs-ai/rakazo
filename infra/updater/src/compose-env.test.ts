@@ -105,6 +105,18 @@ const INDIRECT = {
     "http_proxy",
     "https_proxy",
     "no_proxy",
+    // adapters/teams-agent-apps/env.ts reads these through a small helper.
+    "TEAMS_AGENT_APPS_CLIENT_ID",
+    "TEAMS_AGENT_APPS_CLIENT_SECRET",
+    "TEAMS_AGENT_APPS_SUBSCRIPTION_ID",
+    "TEAMS_AGENT_APPS_RESOURCE_GROUP",
+    "TEAMS_AGENT_APPS_KEY_VAULT_URL",
+    "TEAMS_AGENT_APPS_CATALOG_REFRESH_TOKEN_SECRET",
+    "TEAMS_MESSAGING_ENDPOINT",
+    "TEAMS_AGENT_APPS_DEVELOPER_NAME",
+    "TEAMS_AGENT_APPS_DEVELOPER_WEBSITE_URL",
+    "TEAMS_AGENT_APPS_DEVELOPER_PRIVACY_URL",
+    "TEAMS_AGENT_APPS_DEVELOPER_TERMS_URL",
   ],
   api: [
     // core/secrets-guard.ts resolves these by name.
