@@ -120,6 +120,11 @@ export interface MessagingPlatform {
    * it, so only that agent runs.
    */
   agentId?: string;
+  /**
+   * Called with every raw webhook payload the adapter verified and accepted (2xx), after the
+   * sink ran. Failures are logged, never returned to the vendor.
+   */
+  verifiedWebhook?: (payload: unknown) => Promise<void>;
   /** The key this platform's webhooks are routed by (a Teams bot app id). */
   routeKey?: string;
   /**
@@ -203,78 +208,120 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     { expiresAt: number; members: Promise<string[]> }
   >();
   private sink: ((event: MessagingInboundEvent) => Promise<void>) | undefined;
+  private readonly userName: string;
   private initialized: Promise<void> | undefined;
 
   constructor(platforms: MessagingPlatform[], options: { userName?: string } = {}) {
     if (platforms.length === 0) throw new Error("ChatSdkMessagingSurface needs >=1 platform");
-    for (const platform of platforms) {
-      if (this.byProvider.has(platform.provider)) {
-        throw new Error(`Duplicate messaging provider: ${platform.provider}`);
-      }
-      const adapterName = platform.adapterName ?? platform.provider;
-      const chat = new Chat({
-        userName: options.userName ?? "rakazo",
-        adapters: { [adapterName]: platform.adapter },
-        state: createMemoryState(),
-        // The SDK default ("drop") takes a per-conversation lock and discards
-        // any message that arrives while it is held — and the LockError is
-        // swallowed into waitUntil, so the webhook still ACKs 200 and the
-        // vendor never retries. Two texts in quick succession would lose the
-        // second. Each inbound message already runs inside its own webhook's
-        // waitUntil task, so process them independently and let the per-message
-        // client nonce downstream handle replay.
-        concurrency: "concurrent",
-      });
-      const mounted: MountedPlatform = { platform, adapterName, chat };
-      this.byProvider.set(platform.provider, mounted);
-      const deliver = async (thread: Thread, message: Message) => {
-        if (
-          platform.provider === "slack" &&
-          message.isMention &&
-          message.attachments.length > 0 &&
-          inboundAttachments(message).length === 0 &&
-          (message.raw as { type?: unknown }).type === "app_mention"
-        ) {
-          try {
-            const fetchMessage = platform.adapter.fetchMessage;
-            if (!fetchMessage) throw new Error("Slack adapter cannot hydrate mention attachments");
-            const fetched = await fetchMessage.call(platform.adapter, thread.id, message.id);
-            if (!fetched || inboundAttachments(fetched).length === 0) {
-              throw new Error("Slack mention attachments are not available from message history");
-            }
-            // Preserve app_mention-only routing metadata while replacing the
-            // incomplete file stubs with Slack's authenticated history objects.
-            message.attachments = fetched.attachments;
-          } catch {
-            // Missing scopes, deleted files, or unavailable history must not
-            // prevent the mention text and original file URLs from arriving.
-            getLogger().warn(
-              "Slack mention attachment hydration failed; delivering original message",
-            );
-          }
-        }
-        const event = this.toInbound(mounted, thread.id, thread.isDM, message);
-        if (!event) return;
-        if (!event.isDirect && platform.members) await this.attachMembers(mounted, event);
-        try {
-          await this.sink?.(event);
-        } catch (error) {
-          // processMessage hands waitUntil a swallowed promise, so track
-          // sink failures here, turn them into HTTP 5xx, and
-          // clear the SDK dedupe key so Slack's retry can process the message.
-          webhookDrain.getStore()?.failedKeys.push(chatDedupeKey(platform.adapter, message.id));
-          throw error;
-        }
-      };
-      // Priority routing makes these disjoint: DMs, then @-mentions in
-      // unsubscribed threads, then the catch-all pattern for everything else.
-      // Subscribed threads skip the catch-all and only fire onSubscribedMessage
-      // (chat SDK docs / dispatchToHandlersWithSignal); register deliver there too.
-      chat.onDirectMessage(deliver);
-      chat.onNewMention(deliver);
-      chat.onSubscribedMessage(deliver);
-      chat.onNewMessage(/(?:)/, deliver);
+    this.userName = options.userName ?? "rakazo";
+    for (const platform of platforms) this.addPlatform(platform);
+  }
+
+  private addPlatform(platform: MessagingPlatform): MountedPlatform {
+    if (this.byProvider.has(platform.provider)) {
+      throw new Error(`Duplicate messaging provider: ${platform.provider}`);
     }
+    const adapterName = platform.adapterName ?? platform.provider;
+    const chat = new Chat({
+      userName: this.userName,
+      adapters: { [adapterName]: platform.adapter },
+      state: createMemoryState(),
+      // The SDK default ("drop") takes a per-conversation lock and discards
+      // any message that arrives while it is held — and the LockError is
+      // swallowed into waitUntil, so the webhook still ACKs 200 and the
+      // vendor never retries. Two texts in quick succession would lose the
+      // second. Each inbound message already runs inside its own webhook's
+      // waitUntil task, so process them independently and let the per-message
+      // client nonce downstream handle replay.
+      concurrency: "concurrent",
+    });
+    const mounted: MountedPlatform = { platform, adapterName, chat };
+    this.byProvider.set(platform.provider, mounted);
+    const deliver = async (thread: Thread, message: Message) => {
+      if (
+        platform.provider === "slack" &&
+        message.isMention &&
+        message.attachments.length > 0 &&
+        inboundAttachments(message).length === 0 &&
+        (message.raw as { type?: unknown }).type === "app_mention"
+      ) {
+        try {
+          const fetchMessage = platform.adapter.fetchMessage;
+          if (!fetchMessage) throw new Error("Slack adapter cannot hydrate mention attachments");
+          const fetched = await fetchMessage.call(platform.adapter, thread.id, message.id);
+          if (!fetched || inboundAttachments(fetched).length === 0) {
+            throw new Error("Slack mention attachments are not available from message history");
+          }
+          // Preserve app_mention-only routing metadata while replacing the
+          // incomplete file stubs with Slack's authenticated history objects.
+          message.attachments = fetched.attachments;
+        } catch {
+          // Missing scopes, deleted files, or unavailable history must not
+          // prevent the mention text and original file URLs from arriving.
+          getLogger().warn(
+            "Slack mention attachment hydration failed; delivering original message",
+          );
+        }
+      }
+      const event = this.toInbound(mounted, thread.id, thread.isDM, message);
+      if (!event) return;
+      if (!event.isDirect && platform.members) await this.attachMembers(mounted, event);
+      try {
+        await this.sink?.(event);
+      } catch (error) {
+        // processMessage hands waitUntil a swallowed promise, so track
+        // sink failures here, turn them into HTTP 5xx, and
+        // clear the SDK dedupe key so Slack's retry can process the message.
+        webhookDrain.getStore()?.failedKeys.push(chatDedupeKey(platform.adapter, message.id));
+        throw error;
+      }
+    };
+    // Priority routing makes these disjoint: DMs, then @-mentions in
+    // unsubscribed threads, then the catch-all pattern for everything else.
+    // Subscribed threads skip the catch-all and only fire onSubscribedMessage
+    // (chat SDK docs / dispatchToHandlersWithSignal); register deliver there too.
+    chat.onDirectMessage(deliver);
+    chat.onNewMention(deliver);
+    chat.onSubscribedMessage(deliver);
+    chat.onNewMessage(/(?:)/, deliver);
+    return mounted;
+  }
+
+  /** The platform mounted for a provider, if any. */
+  mountedPlatform(provider: string): MessagingPlatform | undefined {
+    return this.byProvider.get(provider)?.platform;
+  }
+
+  /**
+   * Mounts a platform while the surface runs (an agent's own Teams app, created at runtime).
+   * A platform already mounted under the provider is replaced. Once the surface has been
+   * initialized the new platform's Chat instance is initialized too.
+   */
+  async mountPlatform(platform: MessagingPlatform): Promise<void> {
+    if (this.byProvider.has(platform.provider)) await this.unmountPlatform(platform.provider);
+    const mounted = this.addPlatform(platform);
+    if (this.initialized) {
+      try {
+        await mounted.chat.initialize();
+      } catch (error) {
+        this.byProvider.delete(platform.provider);
+        throw error;
+      }
+    }
+  }
+
+  /** Unmounts a platform mounted at runtime; its cached member lists are dropped. */
+  async unmountPlatform(provider: string): Promise<boolean> {
+    const mounted = this.byProvider.get(provider);
+    if (!mounted) return false;
+    this.byProvider.delete(provider);
+    for (const key of this.memberLists.keys()) {
+      if (providerOfThreadId(key) === provider) this.memberLists.delete(key);
+    }
+    const adapter = mounted.platform.adapter as { stopPolling?: () => Promise<void> };
+    await adapter.stopPolling?.().catch(() => undefined);
+    await (mounted.chat as { shutdown?: () => Promise<void> }).shutdown?.().catch(() => undefined);
+    return true;
   }
 
   describe(): AdapterDescriptor<{ providers: string[] }> {
@@ -627,6 +674,16 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
       for (const status of platform.peekStatuses(payload)) await this.sink?.(status);
     }
     if (response.status < 300) await this.applyMembershipChanges(mounted, payload);
+    if (response.status < 300 && platform.verifiedWebhook) {
+      try {
+        await platform.verifiedWebhook(payload);
+      } catch (error) {
+        getLogger().warn("messaging verified webhook hook failed", {
+          provider: platform.provider,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return response;
   }
 

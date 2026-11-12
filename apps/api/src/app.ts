@@ -24,6 +24,7 @@ import {
   VoiceAccountError,
 } from "@rakazo/adapter-kit";
 import type {
+  AgentTeamsSecretReader,
   ComposioProvider,
   ConnectorRegistry,
   PluginRepoFetcher,
@@ -84,6 +85,8 @@ import {
   PrismaPushTokenStore,
   pipedreamConfigFromEnv,
   piSessionsRoot,
+  prismaAgentTeamsApps,
+  prismaAgentTeamsChatInstalls,
   RunJobPublisher,
   RunStarter,
   reconcileCloudAgents,
@@ -96,7 +99,9 @@ import {
   SpaceMemoryProviderResolver,
   StripeBillingProvider,
   sandboxProviderOptionsFromEnv,
+  setActiveTeamsAgentAppRouter,
   stripeBillingConfigFromEnv,
+  TeamsAgentAppRouter,
   teamsGroupChatsFromEnv,
   toTeamChatInbound,
   UserDeviceHub,
@@ -266,6 +271,8 @@ type CreateAppOverrides = Partial<AppEnv> & {
   connectors?: ConnectorProvider[];
   pipedream?: ManagedConnectorProvider;
   messaging?: MessagingSurface;
+  /** Reads an agent Teams app's password by secret name (TEAMS_AGENT_APPS_ENABLED). */
+  agentTeamsSecretReader?: AgentTeamsSecretReader;
   email?: TransactionalEmailProvider;
   notifications?: NotificationProvider;
   billing?: BillingProvider;
@@ -291,6 +298,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     connectors: connectorOverrides = [],
     pipedream: pipedreamOverride,
     messaging: messagingOverride,
+    agentTeamsSecretReader,
     email: emailOverride,
     notifications: notificationsOverride,
     billing: billingOverride,
@@ -473,6 +481,24 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     })
       ? new ChatSdkMessagingSurface(messagingPlatforms)
       : undefined);
+  // Agent Teams apps: each agent's own Teams app, created at runtime, mounted from the database.
+  const teamsAgentApps =
+    env.teamsAgentAppsEnabled &&
+    env.teamsAppTenantId &&
+    legacyMessaging instanceof ChatSdkMessagingSurface
+      ? new TeamsAgentAppRouter({
+          host: legacyMessaging,
+          tenantId: env.teamsAppTenantId,
+          envBots: env.teamsAgentBots ?? [],
+          loadApps: prismaAgentTeamsApps(prisma),
+          readSecret: agentTeamsSecretReader ?? ((ref) => secrets.load(ref, { recordId: ref })),
+          installs: prismaAgentTeamsChatInstalls(prisma),
+        })
+      : undefined;
+  if (teamsAgentApps) {
+    setActiveTeamsAgentAppRouter(teamsAgentApps);
+    teamsAgentApps.start();
+  }
   const { messaging, installations: messagingInstallations } = messagingOverride
     ? { messaging: messagingOverride, installations: undefined }
     : installedMessaging(prisma, secrets, env, legacyMessaging, jobs);
@@ -1580,6 +1606,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       );
       await messagingInitTask?.catch(() => undefined);
       await settleWithTimeout(teamChatInitTask, TEAM_CHAT_STARTUP_SHUTDOWN_MS);
+      if (teamsAgentApps) setActiveTeamsAgentAppRouter(undefined);
       await messaging?.shutdown?.();
       await teamChatBridge?.stop();
       await stopInstalledBridges?.();
