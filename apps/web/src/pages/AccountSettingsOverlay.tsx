@@ -72,7 +72,7 @@ import {
 import type { AppearancePreference } from "../lib/ui-appearance";
 import { getUiAppearancePreference, setUiAppearance } from "../lib/ui-appearance";
 import type { UiLocale } from "../lib/ui-locale";
-import { UI_LOCALE_LABELS, UI_LOCALES } from "../lib/ui-locale";
+import { getAllowedUiLocales, UI_LOCALE_LABELS } from "../lib/ui-locale";
 import { authErrorText } from "../lib/user-error";
 
 export type SettingsGeneralProps = {
@@ -378,10 +378,12 @@ export function GeneralSettingsPanels({
             </ToggleGroup>
           }
         />
-        <SettingsRow
-          label={<Trans>Language</Trans>}
-          control={<UiLocalePicker value={locale} onChange={chooseLocale} />}
-        />
+        {getAllowedUiLocales().length > 1 ? (
+          <SettingsRow
+            label={<Trans>Language</Trans>}
+            control={<UiLocalePicker value={locale} onChange={chooseLocale} />}
+          />
+        ) : null}
         {onTimezoneChange ? (
           <div data-testid="timezone-settings">
             <SettingsRow
@@ -875,7 +877,7 @@ function UiLocalePicker({
       className="w-56 max-w-full"
       data-testid="ui-locale-select"
       aria-label={t`Language`}
-      options={UI_LOCALES.map((code) => ({
+      options={getAllowedUiLocales().map((code) => ({
         value: code,
         label: UI_LOCALE_LABELS[code],
       }))}

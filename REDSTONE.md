@@ -34,7 +34,14 @@ Upstream ships several releases a week. Every line we change in an upstream file
 | `feat/mcp-token-exchange` | not opened yet | Follow-up to fork #10: after an SSO sign-in the exchange probes each MCP server it connected once the grant is stored, so a 401 recorded by the first run (which starts before the grant lands) does not leave the server shown as not working. A failed probe is logged and keeps the connection. Fork #12. |
 | `feat/teams-auto-pair` | not opened yet | `RAKAZO_TEAMS_AUTO_LINK=true` links an unlinked Teams sender to the person whose SSO sign-in recorded the same Entra tenant and object id, on their first bot without a chat app, without a link code; otherwise the code flow is unchanged. Fork #11. |
 | `feat/default-mcp-always-allow` | not opened yet | `alwaysAllowTools` on a `RAKAZO_DEFAULT_MCP_SERVERS` entry saves an "Always allow" tool rule (`mcp__<slug>__<tool>`) for the person once, when the server is added. Used for Managebot's read-only `schema` and `query`, whose names the connector read check does not recognize. |
+| `redstone-english-only-ui` | not opened yet | `RAKAZO_UI_LOCALES` limits the web languages the API offers in `/api/auth/capabilities`; others fall back to English and the picker hides at one. Redstone deploys set `RAKAZO_UI_LOCALES=en`. |
 | `ci/expo-check-offline` | Redstone only | `redstone-ci.yml` passes `EXPO_OFFLINE` so the mobile check uses the installed Expo SDK. Fork #4. |
+
+## English-only UI
+
+Redstone staff use US English only. Every Redstone deploy sets `RAKAZO_UI_LOCALES=en` on the API (the Managebot repo's `infra/bots` Bicep; the Compose files pass it through), so the web app never activates another catalog, whatever the browser language or an old saved choice, and Settings shows no language picker.
+
+Redstone-added UI strings ship English only; do not hand-write or machine-generate translations for other locales. Add each fork-added English message to `apps/web/src/lib/redstone-english-only.ts`: the upstream catalog check that wants every message in Polish skips it, and `redstone-english-only.test.ts` fails if any other catalog translates it. Never add a fork string to the upstream every-locale lists in `i18n-catalog.test.ts`.
 
 ## Sync upstream
 

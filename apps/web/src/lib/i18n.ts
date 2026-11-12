@@ -3,7 +3,7 @@ import { applyUiDirection } from "./apply-ui-direction";
 import { desktopBridge } from "./desktop";
 import { importChunk } from "./preload-recovery";
 import type { UiLocale } from "./ui-locale";
-import { persistUiLocale, resolveUiLocale } from "./ui-locale";
+import { allowedUiLocale, persistUiLocale, resolveUiLocale } from "./ui-locale";
 
 export { i18n };
 
@@ -65,7 +65,9 @@ function activateLoaded(locale: UiLocale, messages: CatalogMessages): UiLocale {
  * Load and activate a locale. Concurrent calls: only the latest selection wins.
  * If the preferred catalog fails, falls back to English (then empty English).
  */
-export async function activateUiLocale(locale: UiLocale): Promise<UiLocale> {
+export async function activateUiLocale(requested: UiLocale): Promise<UiLocale> {
+  // A language the deployment does not offer is never loaded.
+  const locale = allowedUiLocale(requested);
   // Bump first so a later "already active" selection cancels in-flight loads.
   const generation = ++activationGeneration;
   const isCurrent = () => generation === activationGeneration;
