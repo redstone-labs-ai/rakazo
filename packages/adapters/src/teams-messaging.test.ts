@@ -11,6 +11,12 @@ import {
   MessagingSendError,
 } from "./chat-sdk-surface.js";
 import { messagingEnvFromProcess, messagingPlatformsFromEnv } from "./messaging-platforms.js";
+import type { AgentTeamsAppRow } from "./teams-agent-app-platforms.js";
+import {
+  refreshAgentTeamsPlatforms,
+  setActiveTeamsAgentAppRouter,
+  TeamsAgentAppRouter,
+} from "./teams-agent-app-platforms.js";
 import {
   isTeamsBotSender,
   LazyTeamsAdapter,
@@ -748,5 +754,242 @@ describe("Teams bot loop guard", () => {
     const platform = teamsPlatform(credentials, { provider: "teams-a", agentId: "a" });
     expect(platform?.acceptsGroup?.({ from: { id: "28:app-b" } })).toBe(false);
     expect(platform?.acceptsGroup?.({ from: { id: "29:user" } })).toBe(true);
+  });
+});
+
+function appIdOf(surface: ChatSdkMessagingSurface, provider: string): string | undefined {
+  return configOf(surface.mountedPlatform(provider))?.appId;
+}
+
+function configOf(platform: { adapter: unknown } | undefined) {
+  return platform?.adapter instanceof LazyTeamsAdapter ? platform.adapter.config : undefined;
+}
+
+describe("Teams agent apps (runtime)", () => {
+  const TONY_APP_ID = "00000000-0000-0000-0000-0000000000d1";
+  const TONY_BOT = `28:${TONY_APP_ID}`;
+  const ENV_LEASING_APP_ID = "00000000-0000-0000-0000-0000000000b7";
+  const chatA = { id: "19:chat-a@thread.v2", conversationType: "groupChat", isGroup: true };
+  const chatB = { id: "19:chat-b@thread.v2", conversationType: "groupChat", isGroup: true };
+
+  function harness(rows: AgentTeamsAppRow[], secrets: Record<string, string>) {
+    const env = messagingEnvFromProcess({
+      TEAMS_APP_ID: APP_ID,
+      TEAMS_APP_PASSWORD: "app-secret",
+      TEAMS_APP_TENANT_ID: TENANT,
+      TEAMS_AGENT_BOTS: JSON.stringify({
+        botLeasing: { appId: ENV_LEASING_APP_ID, passwordEnv: "TEAMS_APP_PASSWORD_LEASING" },
+      }),
+      TEAMS_APP_PASSWORD_LEASING: "leasing-secret",
+    });
+    const surface = new ChatSdkMessagingSurface(messagingPlatformsFromEnv(env));
+    const events: MessagingInboundMessage[] = [];
+    surface.onInbound(async (event) => {
+      if (event.type === "message") events.push(event);
+    });
+    const installs = { recorded: [] as string[][], removed: [] as string[][] };
+    const state = { rows };
+    const router = new TeamsAgentAppRouter({
+      host: surface,
+      tenantId: TENANT,
+      envBots: env.teamsAgentBots ?? [],
+      loadApps: async () => state.rows,
+      readSecret: async (ref) => secrets[ref],
+      installs: {
+        recordChatInstall: async (appId, chatId, installId) => {
+          installs.recorded.push([appId, chatId, installId ?? ""]);
+        },
+        markChatRemoved: async (appId, chatId) => {
+          installs.removed.push([appId, chatId]);
+        },
+      },
+      intervalMs: 0,
+    });
+    return { surface, events, installs, router, state };
+  }
+
+  const tonyRow: AgentTeamsAppRow = {
+    id: "app-row-tony",
+    botId: "botTony",
+    status: "published",
+    entraAppId: TONY_APP_ID,
+    secretRef: "teams-app-bottony",
+  };
+
+  function toTony(
+    conversation: Record<string, unknown>,
+    text: string,
+    from?: Record<string, unknown>,
+  ) {
+    return {
+      ...activity({ conversation, text, ...(from ? { from } : {}) }),
+      recipient: { id: TONY_BOT, name: "Tony" },
+      entities: [
+        { type: "mention", text: "<at>Tony</at>", mentioned: { id: TONY_BOT, name: "Tony" } },
+      ],
+    };
+  }
+
+  it("mounts published and visible apps at runtime and unmounts them without a restart", async () => {
+    const { surface, router, state } = harness(
+      [
+        tonyRow,
+        {
+          ...tonyRow,
+          id: "r2",
+          botId: "botDraft",
+          status: "registered",
+          entraAppId: "00000000-0000-0000-0000-0000000000e1",
+        },
+      ],
+      { "teams-app-bottony": "tony-secret" },
+    );
+    expect(surface.mountedPlatform("teams-bottony")).toBeUndefined();
+    setActiveTeamsAgentAppRouter(router);
+    await refreshAgentTeamsPlatforms();
+    const tony = surface.mountedPlatform("teams-bottony");
+    expect(tony?.agentId).toBe("botTony");
+    expect(configOf(tony)).toEqual({
+      appId: TONY_APP_ID,
+      appPassword: "tony-secret",
+      tenantId: TENANT,
+    });
+    expect(surface.mountedPlatform("teams-botdraft")).toBeUndefined();
+    state.rows = [{ ...tonyRow, status: "removed" }];
+    await refreshAgentTeamsPlatforms();
+    expect(surface.mountedPlatform("teams-bottony")).toBeUndefined();
+    setActiveTeamsAgentAppRouter(undefined);
+  });
+
+  it("skips an app whose secret cannot be read", async () => {
+    const { surface, router } = harness([tonyRow], {});
+    await router.refresh();
+    expect(surface.mountedPlatform("teams-bottony")).toBeUndefined();
+  });
+
+  it("lets a database row win over the env bot for the same agent, and restores the env bot after", async () => {
+    const leasingRow = {
+      ...tonyRow,
+      id: "row-leasing",
+      botId: "botLeasing",
+      entraAppId: "00000000-0000-0000-0000-0000000000f1",
+      secretRef: "s-leasing",
+    };
+    const { surface, router, state } = harness([leasingRow], { "s-leasing": "db-secret" });
+    expect(appIdOf(surface, "teams-botleasing")).toBe(ENV_LEASING_APP_ID);
+    await router.refresh();
+    expect(appIdOf(surface, "teams-botleasing")).toBe("00000000-0000-0000-0000-0000000000f1");
+    state.rows = [];
+    await router.refresh();
+    expect(appIdOf(surface, "teams-botleasing")).toBe(ENV_LEASING_APP_ID);
+  });
+
+  it("never mounts two platforms on one app id", async () => {
+    const clash = { ...tonyRow, entraAppId: APP_ID.toUpperCase() };
+    const { surface, router } = harness([clash], { "teams-app-bottony": "x" });
+    await router.refresh();
+    expect(surface.mountedPlatform("teams-bottony")).toBeUndefined();
+    expect(
+      surface
+        .platforms()
+        .map((p) => p.provider)
+        .sort(),
+    ).toEqual(["teams", "teams-botleasing"]);
+  });
+
+  it("keeps one agent's two group chats apart across interleaved messages, replying in each as the agent", async () => {
+    connector.members.set(chatA.id, [[{ id: "29:ada", name: "Ada Lovelace" }]]);
+    connector.members.set(chatB.id, [[{ id: "29:bob", name: "Bob" }]]);
+    const { surface, events, installs, router } = harness([tonyRow], {
+      "teams-app-bottony": "tony-secret",
+    });
+    await router.refresh();
+    const bob = { id: "29:bob", name: "Bob", aadObjectId: "aad-bob" };
+    // Both arrive at the shared bot's webhook URL; the recipient picks Tony's app.
+    for (const body of [
+      toTony(chatA, "A1"),
+      toTony(chatB, "B1", bob),
+      toTony(chatA, "A2"),
+      toTony(chatB, "B2", bob),
+    ]) {
+      expect((await surface.handleWebhook("teams", webhook(body)))?.status).toBeLessThan(300);
+    }
+    expect(events.map((event) => event.content.replace(/@?Tony/g, "").trim())).toEqual([
+      "A1",
+      "B1",
+      "A2",
+      "B2",
+    ]);
+    for (const event of events)
+      expect(event).toMatchObject({
+        provider: "teams-bottony",
+        agentId: "botTony",
+        isDirect: false,
+        mentionsBot: true,
+      });
+    const threadA = events[0]!.threadId;
+    const threadB = events[1]!.threadId;
+    expect(threadA).not.toBe(threadB);
+    expect(events[2]!.threadId).toBe(threadA);
+    expect(events[3]!.threadId).toBe(threadB);
+    expect(teamsConversationIdOfThread(threadA)).toBe(chatA.id);
+    expect(teamsConversationIdOfThread(threadB)).toBe(chatB.id);
+    expect(events[1]!.participants).toEqual(["29:bob"]);
+
+    // Install recorded once per chat, on the first activity.
+    expect(installs.recorded.map(([row, chat]) => `${row}|${chat}`)).toEqual([
+      `app-row-tony|${chatA.id}`,
+      `app-row-tony|${chatB.id}`,
+    ]);
+
+    // Interleaved replies land in their own chats, sent by Tony's app.
+    expect(appIdOf(surface, "teams-bottony")).toBe(TONY_APP_ID);
+    const before = activityPosts().length;
+    await surface.sendToThread({ threadId: threadB, body: "reply B" }, context);
+    await surface.sendToThread({ threadId: threadA, body: "reply A" }, context);
+    const posts = activityPosts().slice(before);
+    expect(posts.map((post) => post.path)).toEqual([
+      `/v3/conversations/${chatB.id}/activities`,
+      `/v3/conversations/${chatA.id}/activities`,
+    ]);
+    expect(teams.configs.some((config) => config.appId === TONY_APP_ID)).toBe(true);
+  });
+
+  it("records installs from installationUpdate and marks removed chats", async () => {
+    const { surface, installs, router } = harness([tonyRow], {
+      "teams-app-bottony": "tony-secret",
+    });
+    await router.refresh();
+    const install = (action: string) => ({
+      ...activity({ conversation: chatA }),
+      type: "installationUpdate",
+      action,
+      recipient: { id: TONY_BOT, name: "Tony" },
+    });
+    expect((await surface.handleWebhook("teams", webhook(install("add"))))?.status).toBeLessThan(
+      300,
+    );
+    expect(installs.recorded.map(([, chat]) => chat)).toEqual([chatA.id]);
+    expect((await surface.handleWebhook("teams", webhook(install("remove"))))?.status).toBeLessThan(
+      300,
+    );
+    expect(installs.removed).toEqual([["app-row-tony", chatA.id]]);
+  });
+
+  it("ignores group messages from other bots, the shared bot and other agent apps included", async () => {
+    connector.members.set(chatA.id, [[{ id: "29:ada", name: "Ada Lovelace" }]]);
+    const { surface, events, router } = harness([tonyRow], { "teams-app-bottony": "tony-secret" });
+    await router.refresh();
+    for (const sender of [
+      `28:${APP_ID}`,
+      `28:${ENV_LEASING_APP_ID}`,
+      "28:00000000-0000-0000-0000-0000000000ff",
+    ]) {
+      await surface.handleWebhook(
+        "teams",
+        webhook(toTony(chatA, "hi", { id: sender, name: "Bot" })),
+      );
+    }
+    expect(events).toEqual([]);
   });
 });

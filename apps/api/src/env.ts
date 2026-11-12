@@ -177,6 +177,8 @@ export interface AppEnv {
   teamsAppTenantId: string | undefined;
   /** Agents with their own Teams bot (TEAMS_AGENT_BOTS). The rest use the shared bot. */
   teamsAgentBots?: TeamsAgentBot[];
+  /** TEAMS_AGENT_APPS_ENABLED: mount agents' runtime-created Teams apps from the database. */
+  teamsAgentAppsEnabled?: boolean;
   /** Managebot's internal endpoint for a Teams chat's listening setting, per agent. */
   managebotTeamsListeningUrl: string | undefined;
   /** Bearer token for that endpoint. */
@@ -374,6 +376,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     teamsAppPassword: optional(source.TEAMS_APP_PASSWORD),
     teamsAppTenantId: optional(source.TEAMS_APP_TENANT_ID),
     teamsAgentBots: teamsAgentBotsFromEnv(source),
+    teamsAgentAppsEnabled: source.TEAMS_AGENT_APPS_ENABLED === "true",
     managebotTeamsListeningUrl: optional(source.MANAGEBOT_TEAMS_LISTENING_URL),
     managebotInternalToken: optional(source.MANAGEBOT_INTERNAL_TOKEN),
     messagingOpenSignup: source.MESSAGING_OPEN_SIGNUP === "true",
