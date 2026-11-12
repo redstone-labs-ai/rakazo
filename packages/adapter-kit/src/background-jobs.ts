@@ -28,6 +28,10 @@ const payloadSchemas = {
     installationId: z.string().min(1),
     ref: z.string().min(1),
   }),
+  "teams.agent-app-deprovision": z.object({
+    botId: z.string().min(1),
+    agentName: z.string(),
+  }),
   "cloud_agent.poll": z.object({ agentId: z.string().min(1) }),
   "purchase.poll": z.object({ purchaseId: z.string().min(1) }),
   "media.poll": z.object({ jobId: z.string().min(1) }),
@@ -167,6 +171,18 @@ export function messagingDeliverJob(runId?: string, availableAt?: Date): Backgro
     payload: runId ? { runId } : {},
     replaceKey: `messaging.deliver:${runId ?? "drain"}`,
     ...(availableAt ? { availableAt } : {}),
+  };
+}
+
+/** Retries ride out Graph and ARM throttling; each step is idempotent. */
+export function teamsAgentAppDeprovisionJob(
+  payload: BackgroundJobPayloads["teams.agent-app-deprovision"],
+): BackgroundJob {
+  return {
+    name: "teams.agent-app-deprovision",
+    payload,
+    replaceKey: `teams.agent-app-deprovision:${payload.botId}`,
+    maxAttempts: 12,
   };
 }
 

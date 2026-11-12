@@ -1,6 +1,8 @@
+import { teamsAgentAppDeprovisionJob } from "@rakazo/adapter-kit";
 import { destroyBot } from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import type { createRepos } from "@rakazo/db";
+import { getLogger } from "@rakazo/logging";
 import type { RouterDeps } from "./router.js";
 
 export function createBotRemoval(deps: RouterDeps, repos: ReturnType<typeof createRepos>) {
@@ -32,6 +34,14 @@ export function createBotRemoval(deps: RouterDeps, repos: ReturnType<typeof crea
       },
       options,
     );
+    // The agent's own Teams app outlives the bot row; a retried job removes it.
+    if (process.env.TEAMS_AGENT_APPS_ENABLED === "true") {
+      await deps.jobs
+        .enqueue(teamsAgentAppDeprovisionJob({ botId: bot.id, agentName: bot.name }))
+        .catch((error: unknown) => {
+          getLogger().error("teams.agent-app-deprovision enqueue error", error);
+        });
+    }
   };
   return removeBot;
 }

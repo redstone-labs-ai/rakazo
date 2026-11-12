@@ -6,6 +6,7 @@ import {
   IntegrationProviderSettings,
   unwrapEnvFromKeyManager,
 } from "@rakazo/adapters";
+import { teamsAgentAppsFromEnv } from "@rakazo/adapters/teams-agent-apps";
 import { phoneCallSettings, productNameFromEnv } from "@rakazo/core";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import { stopOnShutdownSignals } from "@rakazo/core/node/shutdown-signals";
@@ -347,6 +348,7 @@ async function main() {
     );
 
   const jobHandlers = createBackgroundJobHandlers({
+    teamsAgentApps: teamsAgentAppsFromEnv(process.env, prisma),
     executor,
     prisma,
     sandbox,

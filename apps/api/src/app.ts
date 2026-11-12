@@ -106,6 +106,7 @@ import {
   verifyModelServesAgents,
   withSecretPersistence,
 } from "@rakazo/adapters";
+import { teamsAgentAppsFromEnv } from "@rakazo/adapters/teams-agent-apps";
 import { createAuth, isBlockedAuthPath, loopbackTwinOrigins } from "@rakazo/auth";
 import type { Actor, AuthCapabilities } from "@rakazo/contracts";
 import {
@@ -744,6 +745,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   });
 
   const jobHandlers = createBackgroundJobHandlers({
+    teamsAgentApps: teamsAgentAppsFromEnv(process.env, prisma),
     executor,
     prisma,
     sandbox,

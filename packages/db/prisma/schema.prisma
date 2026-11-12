@@ -1868,6 +1868,48 @@ model BotMcpServer {
   @@map("bot_mcp_servers")
 }
 
+/// One agent's own Teams identity: an Entra app, an Azure Bot and an org catalog app, named
+/// after the agent. botId is not a foreign key: the row outlives the bot until deprovisioning
+/// has removed every Microsoft resource. Nothing cascades into it.
+model AgentTeamsApp {
+  id               String           @id @default(cuid())
+  /// Rakazo bot (agent) id.
+  botId            String           @unique
+  /// "creating" | "registered" | "published" | "visible" | "removing" | "removed" | "failed"
+  status           String
+  /// Microsoft app (client) id, which is also the Teams bot id.
+  entraAppId       String?          @unique
+  entraObjectId    String?
+  /// Key Vault secret name, never the value.
+  secretRef        String?
+  azureBotName     String?
+  catalogAppId     String?
+  manifestVersion  String?
+  publishedAt      DateTime?
+  /// First successful chat install; confirms "visible".
+  firstInstalledAt DateTime?
+  lastError        String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  chats            AgentTeamsChat[]
+
+  @@map("agent_teams_apps")
+}
+
+model AgentTeamsChat {
+  id          String        @id @default(cuid())
+  agentAppId  String
+  agentApp    AgentTeamsApp @relation(fields: [agentAppId], references: [id])
+  /// Teams chat id, 19:...@thread.v2.
+  chatId      String
+  installId   String?
+  installedAt DateTime      @default(now())
+  removedAt   DateTime?
+
+  @@unique([agentAppId, chatId])
+  @@map("agent_teams_chats")
+}
+
 model MessagingIdentity {
   id                   String    @id @default(cuid())
   provider             String

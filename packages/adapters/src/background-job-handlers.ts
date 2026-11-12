@@ -34,6 +34,8 @@ import type { MemoryProviderResolver } from "./memory-provider-factory.js";
 import { deliverMessagingOutbound, mirrorMessagingOutbound } from "./messaging-delivery.js";
 import { pollPurchase } from "./purchase-poll.js";
 import { expireTaughtSkillTeaching } from "./teaching-session.js";
+import { deprovisionAgentTeamsApp } from "./teams-agent-apps/deprovision.js";
+import type { AgentTeamsDeprovisionDeps } from "./teams-agent-apps/deps.js";
 
 type Tenant = { spaceId: string; userId: string };
 
@@ -78,6 +80,8 @@ export function createBackgroundJobHandlers(deps: {
   notifications?: ExpoPushProvider;
   mediaGeneration?: MediaGenerationProvider;
   maxUploadSizeBytes?: number;
+  /** Agent Teams app teardown; undefined while TEAMS_AGENT_APPS_ENABLED is off. */
+  teamsAgentApps?: AgentTeamsDeprovisionDeps;
 }): BackgroundJobHandlers {
   const messagingDeps = deps.messaging
     ? {
@@ -161,6 +165,19 @@ export function createBackgroundJobHandlers(deps: {
           signal: AbortSignal.timeout(10_000),
         });
       });
+    },
+    "teams.agent-app-deprovision": async ({ botId, agentName }) => {
+      if (!deps.teamsAgentApps) {
+        getLogger().warn(
+          "teams.agent-app-deprovision skipped: agent Teams apps are not configured",
+          {
+            botId,
+          },
+        );
+        return;
+      }
+      // A failure throws, so the queue retries; every step is idempotent.
+      await deprovisionAgentTeamsApp(botId, deps.teamsAgentApps, { agentName });
     },
     "messaging.deliver": async ({ runId }) => {
       if (runId && messagingDeps) {
